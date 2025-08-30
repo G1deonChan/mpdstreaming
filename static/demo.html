@@ -380,6 +380,8 @@
                                 <h6 class="card-title mb-1">
                                     <i class="fas fa-tv me-2"></i>${escapeHtml(stream.name)}
                                     <span class="badge bg-${getStatusColor(stream.status)} ms-2">${getStatusText(stream.status)}</span>
+                                    ${stream.process_status && stream.process_status !== 'stopped' ? 
+                                        `<span class="badge bg-secondary ms-1">${stream.process_status}</span>` : ''}
                                 </h6>
                                 <small class="text-muted d-block mb-2">ID: ${stream.id}</small>
                                 <p class="card-text mb-2">
@@ -387,7 +389,23 @@
                                     ${stream.license_type ? `<span class="badge bg-info ms-2">${stream.license_type.toUpperCase()}</span>` : ''}
                                     ${!stream.enabled ? '<span class="badge bg-warning ms-2">已禁用</span>' : ''}
                                 </p>
-                                ${stream.status === 'running' ? `
+                                ${stream.output_info && stream.output_info.segment_count > 0 ? `
+                                    <small class="text-success">
+                                        <i class="fas fa-check-circle me-1"></i>
+                                        已生成 ${stream.output_info.segment_count} 个视频片段
+                                    </small>
+                                ` : (stream.status === 'running' ? `
+                                    <small class="text-warning">
+                                        <i class="fas fa-clock me-1"></i>正在生成视频片段...
+                                    </small>
+                                ` : '')}
+                                ${stream.process_info && stream.process_info.restart_count > 0 ? `
+                                    <small class="text-warning d-block">
+                                        <i class="fas fa-exclamation-triangle me-1"></i>
+                                        已重启 ${stream.process_info.restart_count} 次
+                                    </small>
+                                ` : ''}
+                                ${stream.status === 'running' && stream.hls_url ? `
                                     <div class="code-block position-relative">
                                         <strong>HLS播放地址:</strong><br>
                                         ${window.location.origin}${stream.hls_url}
@@ -410,12 +428,15 @@
                                     <button class="btn btn-outline-primary btn-sm" onclick="editStream('${stream.id}')">
                                         <i class="fas fa-edit me-1"></i>编辑
                                     </button>
+                                    <button class="btn btn-outline-info btn-sm" onclick="testStreamUrl('${stream.id}')">
+                                        <i class="fas fa-flask me-1"></i>测试源
+                                    </button>
                                     <button class="btn btn-outline-danger btn-sm" onclick="deleteStream('${stream.id}')">
                                         <i class="fas fa-trash me-1"></i>删除
                                     </button>
-                                    ${stream.status === 'running' ? 
-                                        `<button class="btn btn-info btn-sm" onclick="testStream('${stream.id}')">
-                                            <i class="fas fa-external-link-alt me-1"></i>测试
+                                    ${stream.status === 'running' && stream.hls_url ? 
+                                        `<button class="btn btn-info btn-sm" onclick="testHlsPlayback('${stream.id}')">
+                                            <i class="fas fa-play-circle me-1"></i>测试播放
                                         </button>` : ''
                                     }
                                 </div>
@@ -754,6 +775,77 @@
                     bootstrap.Alert.getOrCreateInstance(alertElement).close();
                 }
             }, 5000);
+        }
+
+        async function testStreamUrl(streamId) {
+            try {
+                const response = await fetch(`/streams/${streamId}/test`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const test = result.test_result;
+                    const statusIcon = test.accessible ? '✅' : '❌';
+                    const statusText = test.accessible ? '可访问' : '无法访问';
+                    
+                    let message = `
+                        <strong>流源测试结果</strong><br>
+                        ${statusIcon} <strong>状态:</strong> ${statusText}<br>
+                        <strong>URL:</strong> ${test.url}<br>
+                        <strong>HTTP状态:</strong> ${test.status_code}<br>
+                        <strong>内容类型:</strong> ${test.content_type}<br>
+                        <strong>服务器:</strong> ${test.server}
+                    `;
+                    
+                    if (test.accessible && test.is_mpd !== undefined) {
+                        message += `<br><strong>MPD格式:</strong> ${test.is_mpd ? '✅ 有效' : '❌ 无效'}`;
+                    }
+                    
+                    if (test.content_preview) {
+                        message += `<br><strong>内容预览:</strong><br><code class="small">${escapeHtml(test.content_preview)}</code>`;
+                    }
+                    
+                    showAlert(message, test.accessible ? 'success' : 'danger');
+                } else {
+                    showAlert(`测试失败: ${result.error}`, 'danger');
+                }
+            } catch (error) {
+                showAlert(`测试失败: ${error.message}`, 'danger');
+            }
+        }
+
+        async function testHlsPlayback(streamId) {
+            const stream = streams.find(s => s.id === streamId);
+            if (!stream || !stream.hls_url) {
+                showAlert('找不到HLS播放地址', 'warning');
+                return;
+            }
+            
+            const hlsUrl = `${window.location.origin}${stream.hls_url}`;
+            
+            try {
+                const response = await fetch(hlsUrl);
+                if (response.ok) {
+                    const playlist = await response.text();
+                    
+                    // 检查playlist是否包含segment信息
+                    const hasSegments = playlist.includes('.ts');
+                    
+                    let message = `
+                        <strong>HLS播放测试</strong><br>
+                        ✅ <strong>播放列表可访问</strong><br>
+                        <strong>URL:</strong> ${hlsUrl}<br>
+                        <strong>包含视频片段:</strong> ${hasSegments ? '✅ 是' : '❌ 否'}<br>
+                        <strong>播放列表内容:</strong><br>
+                        <code class="small">${escapeHtml(playlist.substring(0, 300))}${playlist.length > 300 ? '...' : ''}</code>
+                    `;
+                    
+                    showAlert(message, hasSegments ? 'success' : 'warning');
+                } else {
+                    showAlert(`HLS播放测试失败: HTTP ${response.status}`, 'danger');
+                }
+            } catch (error) {
+                showAlert(`HLS播放测试失败: ${error.message}`, 'danger');
+            }
         }
 
         function showHelp() {
