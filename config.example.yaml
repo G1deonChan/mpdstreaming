@@ -1,0 +1,45 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+# 流配置示例
+# 请将示例值替换为您的实际配置
+streams:
+  - id: "stream_1"
+    name: "您的频道名称"
+    url: "https://your-domain.com/path/to/stream.mpd"
+    manifest_type: "mpd"
+    license_type: "clearkey"
+    license_key: "your_key_id:your_key_value"
+    
+  # 添加更多流的示例
+  # - id: "stream_2"
+  #   name: "另一个频道"
+  #   url: "https://another-domain.com/stream.mpd"
+  #   manifest_type: "mpd"
+  #   license_type: "clearkey"
+  #   license_key: "another_key_id:another_key_value"
+
+# FFmpeg配置
+ffmpeg:
+  hls_time: 6              # HLS段时长(秒)
+  hls_list_size: 10        # HLS播放列表中保持的段数量
+  hls_flags: "delete_segments"  # 删除旧段文件
+  video_codec: "libx264"   # 视频编码器
+  audio_codec: "aac"       # 音频编码器
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 清理配置
+cleanup:
+  session_timeout: 3600    # 会话超时时间(秒)
+  cleanup_interval: 300    # 清理检查间隔(秒)
+
+# 注意事项:
+# 1. 请将所有示例URL和密钥替换为您的实际值
+# 2. 不要将包含真实凭据的配置文件提交到Git仓库
+# 3. 考虑使用环境变量来存储敏感信息
+# 4. 在生产环境中使用HTTPS

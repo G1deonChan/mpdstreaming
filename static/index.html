@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MPD到HLS流媒体管理系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header .subtitle {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .main-content {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            padding: 30px;
+        }
+
+        .sidebar {
+            flex: 1;
+            min-width: 300px;
+            max-width: 400px;
+        }
+
+        .content {
+            flex: 2;
+            min-width: 600px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            border: 1px solid #f0f0f0;
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            border-bottom: 2px solid #4facfe;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        input, textarea, select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }
+
+        textarea {
+            height: 120px;
+            resize: vertical;
+            font-family: 'Courier New', monospace;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            color: white;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            color: white;
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            color: #333;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .health-info {
+            background: linear-gradient(135deg, #e8f5e8 0%, #f0f8ff 100%);
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 5px solid #4caf50;
+            margin-bottom: 20px;
+        }
+
+        .health-info h3 {
+            color: #2e7d32;
+            margin-bottom: 10px;
+        }
+
+        .stream-item {
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .stream-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .stream-item.running {
+            border-color: #4caf50;
+            background: linear-gradient(135deg, #e8f5e8 0%, #f0f8ff 100%);
+        }
+
+        .stream-item.stopped {
+            border-color: #f44336;
+            background: linear-gradient(135deg, #ffebee 0%, #fafafa 100%);
+        }
+
+        .stream-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .stream-title {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .stream-title h4 {
+            color: #333;
+            margin-bottom: 5px;
+            font-size: 1.2em;
+        }
+
+        .stream-id {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .stream-status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-running {
+            background: #4caf50;
+            color: white;
+        }
+
+        .status-stopped {
+            background: #f44336;
+            color: white;
+        }
+
+        .status-starting {
+            background: #ff9800;
+            color: white;
+        }
+
+        .stream-controls {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+
+        .stream-url {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            word-break: break-all;
+            margin: 10px 0;
+            border: 1px solid #e9ecef;
+        }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 5px solid;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border-color: #28a745;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-color: #dc3545;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-color: #17a2b8;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 600px;
+            position: relative;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .close {
+            position: absolute;
+            right: 20px;
+            top: 15px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #aaa;
+        }
+
+        .close:hover {
+            color: #000;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            opacity: 0.9;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .sidebar, .content {
+                min-width: unset;
+            }
+            
+            .stream-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 MPD到HLS流媒体管理系统</h1>
+            <div class="subtitle">实时流媒体转换与管理平台</div>
+        </div>
+
+        <div class="main-content">
+            <!-- 侧边栏 -->
+            <div class="sidebar">
+                <!-- 服务器状态 -->
+                <div class="card">
+                    <h2>📊 系统状态</h2>
+                    <div id="health-info" class="health-info">
+                        <h3>服务器状态</h3>
+                        <div id="health-status">检查中...</div>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-number" id="total-streams">0</div>
+                            <div class="stat-label">总流数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="running-streams">0</div>
+                            <div class="stat-label">运行中</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 添加流表单 -->
+                <div class="card">
+                    <h2>➕ 添加新流</h2>
+                    <form id="add-stream-form">
+                        <div class="form-group">
+                            <label for="stream-name">流名称:</label>
+                            <input type="text" id="stream-name" name="name" placeholder="例如: 示例频道" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="stream-url">MPD流地址:</label>
+                            <input type="url" id="stream-url" name="url" placeholder="https://example.com/stream.mpd" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="license-type">许可证类型:</label>
+                            <select id="license-type" name="license_type">
+                                <option value="">无</option>
+                                <option value="clearkey">ClearKey</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group" id="license-key-group" style="display: none;">
+                            <label for="license-key">许可证密钥 (格式: key_id:key):</label>
+                            <input type="text" id="license-key" name="license_key" placeholder="key_id:key_value">
+                        </div>
+
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="stream-enabled" name="enabled" checked>
+                                启用流
+                            </label>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <span id="add-loading" class="loading" style="display: none;"></span>
+                            添加流
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 主内容区域 -->
+            <div class="content">
+                <!-- 状态消息 -->
+                <div id="status-message"></div>
+
+                <!-- 流列表 -->
+                <div class="card">
+                    <h2>📺 流管理</h2>
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-primary" onclick="loadStreams()">🔄 刷新列表</button>
+                        <button class="btn btn-success" onclick="startAllStreams()">▶️ 启动全部</button>
+                        <button class="btn btn-warning" onclick="stopAllStreams()">⏹️ 停止全部</button>
+                    </div>
+                    <div id="streams-container">
+                        <div style="text-align: center; padding: 40px;">
+                            <div class="loading"></div>
+                            <p style="margin-top: 15px;">加载中...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑流模态框 -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditModal()">&times;</span>
+            <h2>✏️ 编辑流配置</h2>
+            <form id="edit-stream-form">
+                <input type="hidden" id="edit-stream-id">
+                
+                <div class="form-group">
+                    <label for="edit-stream-name">流名称:</label>
+                    <input type="text" id="edit-stream-name" name="name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-stream-url">MPD流地址:</label>
+                    <input type="url" id="edit-stream-url" name="url" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-license-type">许可证类型:</label>
+                    <select id="edit-license-type" name="license_type">
+                        <option value="">无</option>
+                        <option value="clearkey">ClearKey</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="edit-license-key-group" style="display: none;">
+                    <label for="edit-license-key">许可证密钥:</label>
+                    <input type="text" id="edit-license-key" name="license_key">
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="edit-stream-enabled" name="enabled">
+                        启用流
+                    </label>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">保存更改</button>
+                    <button type="button" class="btn" onclick="closeEditModal()" style="background: #6c757d; color: white;">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let streams = [];
+        let updateInterval;
+
+        // 页面加载时初始化
+        window.addEventListener('load', () => {
+            checkHealth();
+            loadStreams();
+            
+            // 每30秒检查一次健康状态
+            setInterval(checkHealth, 30000);
+            
+            // 每5秒更新流状态
+            updateInterval = setInterval(updateStreamStatus, 5000);
+        });
+
+        // 许可证类型变化时显示/隐藏密钥输入框
+        document.getElementById('license-type').addEventListener('change', function() {
+            const licenseKeyGroup = document.getElementById('license-key-group');
+            licenseKeyGroup.style.display = this.value === 'clearkey' ? 'block' : 'none';
+        });
+
+        document.getElementById('edit-license-type').addEventListener('change', function() {
+            const licenseKeyGroup = document.getElementById('edit-license-key-group');
+            licenseKeyGroup.style.display = this.value === 'clearkey' ? 'block' : 'none';
+        });
+
+        // 检查服务器健康状态
+        async function checkHealth() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                
+                document.getElementById('health-status').innerHTML = `
+                    ✅ 服务器运行正常<br>
+                    活跃流数量: ${data.active_streams || 0}<br>
+                    最后更新: ${new Date().toLocaleString()}
+                `;
+            } catch (error) {
+                document.getElementById('health-status').innerHTML = `
+                    ❌ 服务器连接失败: ${error.message}
+                `;
+            }
+        }
+
+        // 加载流列表
+        async function loadStreams() {
+            try {
+                const response = await fetch('/streams');
+                const data = await response.json();
+                streams = data.streams || [];
+                
+                renderStreams();
+                updateStats();
+                
+            } catch (error) {
+                document.getElementById('streams-container').innerHTML = 
+                    `<div class="alert alert-error">加载失败: ${error.message}</div>`;
+            }
+        }
+
+        // 渲染流列表
+        function renderStreams() {
+            const container = document.getElementById('streams-container');
+            
+            if (streams.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">暂无流配置</div>';
+                return;
+            }
+
+            container.innerHTML = streams.map(stream => `
+                <div class="stream-item ${stream.status}" id="stream-${stream.id}">
+                    <div class="stream-header">
+                        <div class="stream-title">
+                            <h4>${stream.name}</h4>
+                            <div class="stream-id">ID: ${stream.id}</div>
+                        </div>
+                        <div class="stream-status status-${stream.status}">
+                            ${getStatusText(stream.status)}
+                        </div>
+                    </div>
+                    
+                    <div class="stream-info">
+                        <strong>源地址:</strong> ${stream.url}<br>
+                        <strong>类型:</strong> ${stream.manifest_type || 'MPD'} 
+                        ${stream.license_type ? `| 许可证: ${stream.license_type.toUpperCase()}` : ''}
+                        ${!stream.enabled ? '<span style="color: #f44336; font-weight: bold;"> | 已禁用</span>' : ''}
+                    </div>
+                    
+                    ${stream.status === 'running' ? `
+                    <div class="stream-url">
+                        <strong>HLS播放地址:</strong><br>
+                        <span onclick="copyToClipboard('${window.location.origin}${stream.hls_url}')" 
+                              style="cursor: pointer; color: #007bff;" 
+                              title="点击复制">
+                            ${window.location.origin}${stream.hls_url}
+                        </span>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="stream-controls">
+                        ${stream.status === 'running' ? 
+                            `<button class="btn btn-warning" onclick="stopStream('${stream.id}')">⏹️ 停止</button>` :
+                            `<button class="btn btn-success" onclick="startStream('${stream.id}')" ${!stream.enabled ? 'disabled' : ''}>▶️ 启动</button>`
+                        }
+                        <button class="btn btn-primary" onclick="editStream('${stream.id}')">✏️ 编辑</button>
+                        <button class="btn btn-danger" onclick="deleteStream('${stream.id}')">🗑️ 删除</button>
+                        ${stream.status === 'running' ? 
+                            `<button class="btn" onclick="testStream('${stream.id}')" style="background: #17a2b8; color: white;">🎬 测试播放</button>` : ''
+                        }
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 更新统计信息
+        function updateStats() {
+            const totalStreams = streams.length;
+            const runningStreams = streams.filter(s => s.status === 'running').length;
+            
+            document.getElementById('total-streams').textContent = totalStreams;
+            document.getElementById('running-streams').textContent = runningStreams;
+        }
+
+        // 获取状态文本
+        function getStatusText(status) {
+            const statusMap = {
+                'running': '运行中',
+                'stopped': '已停止',
+                'starting': '启动中',
+                'stopping': '停止中'
+            };
+            return statusMap[status] || status;
+        }
+
+        // 更新流状态
+        async function updateStreamStatus() {
+            if (streams.length === 0) return;
+            
+            try {
+                // 批量更新所有流状态
+                const statusPromises = streams.map(async (stream) => {
+                    try {
+                        const response = await fetch(`/streams/${stream.id}/status`);
+                        if (response.ok) {
+                            const status = await response.json();
+                            return { id: stream.id, ...status };
+                        }
+                    } catch (error) {
+                        console.warn(`Failed to update status for stream ${stream.id}:`, error);
+                    }
+                    return null;
+                });
+
+                const statuses = await Promise.all(statusPromises);
+                let hasChanges = false;
+
+                statuses.forEach(status => {
+                    if (status) {
+                        const streamIndex = streams.findIndex(s => s.id === status.id);
+                        if (streamIndex !== -1 && streams[streamIndex].status !== status.status) {
+                            streams[streamIndex].status = status.status;
+                            streams[streamIndex].running = status.running;
+                            hasChanges = true;
+                        }
+                    }
+                });
+
+                if (hasChanges) {
+                    renderStreams();
+                    updateStats();
+                }
+            } catch (error) {
+                console.warn('Failed to update stream statuses:', error);
+            }
+        }
+
+        // 显示状态消息
+        function showStatus(message, type = 'success') {
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.className = `alert alert-${type}`;
+            statusDiv.innerHTML = message;
+            statusDiv.style.display = 'block';
+            
+            // 3秒后隐藏
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 3000);
+        }
+
+        // 添加流表单提交
+        document.getElementById('add-stream-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const loading = document.getElementById('add-loading');
+            
+            submitBtn.disabled = true;
+            loading.style.display = 'inline-block';
+            
+            const formData = new FormData(e.target);
+            const data = {
+                name: formData.get('name'),
+                url: formData.get('url'),
+                license_type: formData.get('license_type'),
+                license_key: formData.get('license_key'),
+                manifest_type: 'mpd',
+                enabled: formData.get('enabled') === 'on'
+            };
+
+            try {
+                const response = await fetch('/streams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(`✅ 流添加成功！流ID: ${result.stream_id}`);
+                    document.getElementById('add-stream-form').reset();
+                    loadStreams(); // 刷新列表
+                } else {
+                    showStatus(`❌ 添加失败: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ 网络错误: ${error.message}`, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                loading.style.display = 'none';
+            }
+        });
+
+        // 启动流
+        async function startStream(streamId) {
+            try {
+                const response = await fetch(`/streams/${streamId}/start`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus(`✅ 流 ${streamId} 启动成功`);
+                    // 立即更新该流的状态显示
+                    const streamIndex = streams.findIndex(s => s.id === streamId);
+                    if (streamIndex !== -1) {
+                        streams[streamIndex].status = 'starting';
+                        renderStreams();
+                    }
+                } else {
+                    showStatus(`❌ 启动失败: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ 启动失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 停止流
+        async function stopStream(streamId) {
+            try {
+                const response = await fetch(`/streams/${streamId}/stop`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus(`✅ 流 ${streamId} 停止成功`);
+                    // 立即更新该流的状态显示
+                    const streamIndex = streams.findIndex(s => s.id === streamId);
+                    if (streamIndex !== -1) {
+                        streams[streamIndex].status = 'stopped';
+                        renderStreams();
+                    }
+                } else {
+                    showStatus(`❌ 停止失败: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ 停止失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 启动所有流
+        async function startAllStreams() {
+            const enabledStreams = streams.filter(s => s.enabled && s.status === 'stopped');
+            
+            if (enabledStreams.length === 0) {
+                showStatus('没有可启动的流', 'info');
+                return;
+            }
+
+            showStatus(`正在启动 ${enabledStreams.length} 个流...`, 'info');
+            
+            for (const stream of enabledStreams) {
+                await startStream(stream.id);
+                // 稍微延迟以避免同时启动太多流
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+
+        // 停止所有流
+        async function stopAllStreams() {
+            const runningStreams = streams.filter(s => s.status === 'running');
+            
+            if (runningStreams.length === 0) {
+                showStatus('没有正在运行的流', 'info');
+                return;
+            }
+
+            showStatus(`正在停止 ${runningStreams.length} 个流...`, 'info');
+            
+            for (const stream of runningStreams) {
+                await stopStream(stream.id);
+            }
+        }
+
+        // 编辑流
+        function editStream(streamId) {
+            const stream = streams.find(s => s.id === streamId);
+            if (!stream) return;
+            
+            document.getElementById('edit-stream-id').value = stream.id;
+            document.getElementById('edit-stream-name').value = stream.name;
+            document.getElementById('edit-stream-url').value = stream.url;
+            document.getElementById('edit-license-type').value = stream.license_type || '';
+            document.getElementById('edit-license-key').value = stream.license_key || '';
+            document.getElementById('edit-stream-enabled').checked = stream.enabled !== false;
+            
+            // 显示/隐藏许可证密钥输入框
+            const licenseKeyGroup = document.getElementById('edit-license-key-group');
+            licenseKeyGroup.style.display = stream.license_type === 'clearkey' ? 'block' : 'none';
+            
+            document.getElementById('edit-modal').style.display = 'block';
+        }
+
+        // 关闭编辑模态框
+        function closeEditModal() {
+            document.getElementById('edit-modal').style.display = 'none';
+        }
+
+        // 编辑流表单提交
+        document.getElementById('edit-stream-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const streamId = formData.get('stream_id') || document.getElementById('edit-stream-id').value;
+            const data = {
+                name: formData.get('name'),
+                url: formData.get('url'),
+                license_type: formData.get('license_type'),
+                license_key: formData.get('license_key'),
+                enabled: formData.get('enabled') === 'on'
+            };
+
+            try {
+                const response = await fetch(`/streams/${streamId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(`✅ 流 ${streamId} 更新成功`);
+                    closeEditModal();
+                    loadStreams(); // 刷新列表
+                } else {
+                    showStatus(`❌ 更新失败: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ 更新失败: ${error.message}`, 'error');
+            }
+        });
+
+        // 删除流
+        async function deleteStream(streamId) {
+            if (!confirm(`确定要删除流 ${streamId} 吗？此操作不可撤销。`)) return;
+            
+            try {
+                const response = await fetch(`/streams/${streamId}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus(`✅ 流 ${streamId} 删除成功`);
+                    loadStreams(); // 刷新列表
+                } else {
+                    showStatus(`❌ 删除失败: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ 删除失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 测试播放
+        function testStream(streamId) {
+            const stream = streams.find(s => s.id === streamId);
+            if (!stream || stream.status !== 'running') return;
+            
+            const hlsUrl = `${window.location.origin}${stream.hls_url}`;
+            const vlcUrl = `vlc://${hlsUrl}`;
+            
+            // 尝试用VLC打开
+            window.open(vlcUrl, '_blank');
+            
+            // 同时显示URL供用户复制
+            showStatus(`
+                <strong>HLS播放地址:</strong><br>
+                <code style="background: #f8f9fa; padding: 5px; border-radius: 3px; display: inline-block; margin-top: 5px;">${hlsUrl}</code>
+                <br><small>已尝试用VLC打开，也可复制地址到其他播放器</small>
+            `, 'info');
+        }
+
+        // 复制到剪贴板
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                showStatus('✅ 地址已复制到剪贴板');
+            } catch (error) {
+                showStatus('❌ 复制失败，请手动复制', 'error');
+            }
+        }
+
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('edit-modal');
+            if (event.target === modal) {
+                closeEditModal();
+            }
+        }
+
+        // 键盘快捷键
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeEditModal();
+            }
+        });
+    </script>
+</body>
+</html>

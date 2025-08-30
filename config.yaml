@@ -1,0 +1,38 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+# 流配置
+streams:
+  - id: "stream_1"
+    name: "示例MPD流"
+    url: "https://example.com/sample/stream.mpd"
+    manifest_type: "mpd"
+    license_type: "clearkey"
+    license_key: "1234567890abcdef1234567890abcdef:fedcba0987654321fedcba0987654321"
+    
+  # 可以添加更多流配置
+  # - id: "stream_2"
+  #   name: "另一个流"
+  #   url: "https://example.com/stream.mpd"
+  #   manifest_type: "mpd"
+  #   license_type: "clearkey"
+  #   license_key: "key_id:key"
+
+# FFmpeg配置
+ffmpeg:
+  hls_time: 6              # HLS段时长(秒)
+  hls_list_size: 10        # HLS播放列表中保持的段数量
+  hls_flags: "delete_segments"  # 删除旧段文件
+  video_codec: "libx264"   # 视频编码器
+  audio_codec: "aac"       # 音频编码器
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 清理配置
+cleanup:
+  session_timeout: 3600    # 会话超时时间(秒)
+  cleanup_interval: 300    # 清理检查间隔(秒)
