@@ -109,9 +109,44 @@ docker-compose logs -f
 
 # 使用生产环境配置
 docker-compose -f docker-compose.prod.yml up -d
+
+# 1Panel用户推荐使用
+docker-compose -f docker-compose.1panel.yml up -d
+
+# 简化版本（仅主服务）
+docker-compose -f docker-compose.simple.yml up -d
 ```
 
 如需本地构建，请编辑`docker-compose.yml`文件，将`image:`行注释掉，取消注释`build: .`行。
+
+### 方法4: 1Panel部署（推荐1Panel用户）
+
+1Panel用户可以直接使用项目中的配置文件：
+
+**选项1：使用专用配置文件**
+- 上传项目到1Panel
+- 选择 `docker-compose.1panel.yml` 文件
+- 点击创建编排
+
+**选项2：使用简化配置**
+- 使用 `docker-compose.simple.yml` 进行快速部署
+- 仅包含主服务，减少复杂性
+
+**选项3：自定义编排**
+```yaml
+services:
+  mpdstreaming:
+    image: xinmeng96/mpdstreaming:latest
+    container_name: mpd-hls-streamer
+    ports:
+      - "8080:8080"
+    volumes:
+      - mpd-config:/app/config
+    restart: unless-stopped
+
+volumes:
+  mpd-config:
+```
 
 ### 本地开发运行
 

@@ -1,0 +1,29 @@
+# 简化版Docker Compose - 仅包含主服务
+# 适用于快速部署和测试
+
+services:
+  mpdstreaming:
+    # 使用Docker Hub预构建镜像
+    image: xinmeng96/mpdstreaming:latest
+    container_name: mpd-hls-streamer
+    ports:
+      - "8080:8080"
+    volumes:
+      # 配置文件将由容器自动创建
+      - mpd-config:/app/config
+      - ./logs:/app/logs
+    environment:
+      - CONFIG_PATH=/app/config/config.yaml
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "/app/healthcheck.py", "--quiet"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  mpd-config:
+    driver: local

@@ -1,17 +1,15 @@
+# 1Panel专用Docker Compose配置
+# 使用预构建镜像，确保部署成功
+
 services:
   mpdstreaming:
-    # 使用Docker Hub镜像 (推荐)
+    # 使用Docker Hub预构建镜像
     image: xinmeng96/mpdstreaming:latest
-    # 或者使用GitHub Container Registry:
-    # image: ghcr.io/g1deonchan/mpdstreaming:latest
-    # 或者本地构建:
-    # build: .
     container_name: mpd-hls-streamer
     ports:
       - "8080:8080"
     volumes:
-      # 配置文件将由容器自动创建，也可以通过volume挂载自定义配置
-      # - ./config.yaml:/app/config.yaml:ro
+      # 配置文件将由容器自动创建
       - mpd-config:/app/config
       - ./logs:/app/logs
       - /tmp/hls:/tmp/hls
@@ -48,31 +46,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    networks:
-      - mpd-network
-
-  # 监控服务 (可选，使用 --profile monitoring 启用)
-  monitor:
-    build: .
-    container_name: mpd-monitor
-    volumes:
-      - ./logs:/app/logs
-    environment:
-      - PYTHONUNBUFFERED=1
-    command: ["python3", "/app/monitor.py", "--url", "http://mpdstreaming:8080", "--continuous", "--interval", "60"]
-    depends_on:
-      - mpdstreaming
-    restart: unless-stopped
-    networks:
-      - mpd-network
-    profiles:
-      - monitoring
 
 networks:
   mpd-network:
     driver: bridge
 
 volumes:
-  logs:
   mpd-config:
     driver: local
