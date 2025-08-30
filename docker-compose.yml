@@ -11,17 +11,22 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./logs:/app/logs
+      - /tmp/hls:/tmp/hls
     environment:
       - CONFIG_PATH=/app/config.yaml
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python3", "/app/healthcheck.py", "--quiet"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - mpd-network
 
-  # 可选：添加nginx作为反向代理
+  # Nginx反向代理和HLS文件服务
   nginx:
     image: nginx:alpine
     container_name: mpd-nginx
@@ -31,9 +36,38 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
+      - /tmp/hls:/usr/share/nginx/html/hls:ro
     depends_on:
       - mpdstreaming
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mpd-network
+
+  # 监控服务 (可选，使用 --profile monitoring 启用)
+  monitor:
+    build: .
+    container_name: mpd-monitor
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python3", "/app/monitor.py", "--url", "http://mpdstreaming:8080", "--continuous", "--interval", "60"]
+    depends_on:
+      - mpdstreaming
+    restart: unless-stopped
+    networks:
+      - mpd-network
+    profiles:
+      - monitoring
+
+networks:
+  mpd-network:
+    driver: bridge
 
 volumes:
   logs:

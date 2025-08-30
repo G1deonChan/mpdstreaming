@@ -18,7 +18,59 @@
 
 ## 快速开始
 
-### 使用Docker运行
+### 方法1: 使用启动脚本 (推荐)
+
+项目提供了便捷的启动脚本，支持多种部署选项：
+
+**Linux/macOS:**
+```bash
+# 基础服务
+./start.sh
+
+# 包含监控服务
+./start.sh -m
+
+# 构建并启动
+./start.sh -b start
+
+# 查看服务状态
+./start.sh status
+
+# 查看日志
+./start.sh logs -f
+
+# 停止服务
+./start.sh stop
+
+# 完全清理
+./start.sh clean
+```
+
+**Windows:**
+```cmd
+REM 基础服务
+start.bat
+
+REM 包含监控服务
+start.bat -m
+
+REM 构建并启动
+start.bat -b start
+
+REM 查看服务状态
+start.bat status
+
+REM 查看日志
+start.bat logs -f
+
+REM 停止服务
+start.bat stop
+
+REM 完全清理
+start.bat clean
+```
+
+### 方法2: 使用Docker直接运行
 
 ```bash
 # 拉取镜像
@@ -32,7 +84,7 @@ docker run -d \
   ghcr.io/your-username/mpdstreaming:latest
 ```
 
-### 使用Docker Compose
+### 方法3: 使用Docker Compose
 
 ```bash
 # 启动服务
@@ -125,6 +177,7 @@ curl -X POST http://localhost:8080/streams \
 
 ### 命令行工具
 
+#### 流管理工具
 使用 `stream_manager.py` 工具：
 
 ```bash
@@ -141,6 +194,47 @@ python stream_manager.py list
 
 # 健康检查
 python stream_manager.py health
+```
+
+#### 监控工具
+使用 `monitor.py` 进行服务监控：
+
+```bash
+# 一次性监控检查
+python monitor.py
+
+# 持续监控模式
+python monitor.py --continuous --interval 60
+
+# 输出JSON格式
+python monitor.py --json
+
+# 监控指定服务
+python monitor.py --url http://localhost:8080
+
+# 静默模式（仅返回退出码）
+python monitor.py --quiet
+```
+
+监控功能包括：
+- ✅ **服务健康检查**: API响应状态
+- 📊 **流状态监控**: 活跃/非活跃流统计
+- 📈 **实时监控**: 持续监控模式
+- 📋 **详细报告**: 服务和流的详细信息
+- 🔔 **异常告警**: 通过退出码支持告警集成
+
+#### 健康检查工具
+使用 `healthcheck.py` 进行轻量级健康检查：
+
+```bash
+# 基础健康检查
+python healthcheck.py
+
+# 指定URL和超时
+python healthcheck.py --url http://localhost:8080/health --timeout 5
+
+# 静默模式
+python healthcheck.py --quiet
 ```
 
 ## Kodi格式示例
@@ -213,6 +307,17 @@ python app.py
 ## 贡献
 
 欢迎提交Issue和Pull Request！
+
+## 📋 部署检查清单
+
+部署前请查看 **[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)** 确保所有步骤都已正确完成。
+
+## 📚 相关文档
+
+- [项目总结](PROJECT_SUMMARY.md) - 项目结构和功能概览
+- [安全指南](SECURITY.md) - 安全配置最佳实践
+- [部署检查清单](DEPLOYMENT_CHECKLIST.md) - 完整的部署验证步骤
+- [许可证](LICENSE) - MIT许可证详情
 
 ## 许可证
 

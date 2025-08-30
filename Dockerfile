@@ -1,31 +1,49 @@
 # 使用官方Python基础镜像 (支持ARM64)
 FROM python:3.11-slim
 
+# 设置环境变量以避免debconf交互式提示
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TERM=xterm
+
 # 设置工作目录
 WORKDIR /app
 
 # 安装系统依赖
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     wget \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
 
-# 复制requirements文件
+# 复制requirements文件并安装Python依赖
 COPY requirements.txt .
-
-# 安装Python依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY . .
 
-# 创建静态文件目录
-RUN mkdir -p static
+# 创建必要的目录
+RUN mkdir -p static logs \
+    && chmod +x *.py \
+    && find . -name "*.sh" -exec chmod +x {} \;
 
 # 设置环境变量
-ENV PYTHONPATH=/app
-ENV CONFIG_PATH=/app/config.yaml
+ENV PYTHONPATH=/app \
+    CONFIG_PATH=/app/config.yaml \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# 创建非root用户
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+    && chown -R appuser:appuser /app
+
+# 切换到非root用户
+USER appuser
 
 # 暴露端口
 EXPOSE 8080
