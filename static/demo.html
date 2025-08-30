@@ -387,6 +387,7 @@
                                 <p class="card-text mb-2">
                                     <strong>源:</strong> <code class="small">${escapeHtml(stream.url)}</code>
                                     ${stream.license_type ? `<span class="badge bg-info ms-2">${stream.license_type.toUpperCase()}</span>` : ''}
+                                    ${stream.method ? `<span class="badge bg-secondary ms-2">${stream.method === 'decryption' ? '解密' : 'FFmpeg'}</span>` : ''}
                                     ${!stream.enabled ? '<span class="badge bg-warning ms-2">已禁用</span>' : ''}
                                 </p>
                                 ${stream.output_info && stream.output_info.segment_count > 0 ? `

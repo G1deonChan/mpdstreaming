@@ -5,7 +5,7 @@
 ## 功能特性
 
 - 🎥 支持MPD到HLS的实时转换
-- 🔐 支持ClearKey许可证解密
+- 🔐 支持ClearKey许可证解密（集成yt-dlp、mp4decrypt等多种解密方法）
 - ⚙️ 通过YAML配置文件管理流
 - 🐳 Docker容器化部署
 - 🏗️ GitHub Actions CI/CD (仅在发布时构建镜像)
@@ -417,6 +417,8 @@ image: xinmeng96/mpdstreaming:latest
 2. **许可证解密失败**
    - 检查ClearKey格式是否正确
    - 验证key_id和key的十六进制格式
+   - 确保容器内已安装解密工具（yt-dlp、mp4decrypt等）
+   - 查看容器日志确认解密方法选择
 
 3. **流无法播放**
    - 检查原始MPD URL是否可访问
@@ -460,6 +462,13 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 - **前端**: HTML5, JavaScript (原生)
 
 ## 更新日志
+
+### v1.1.4 (2025-08-30)
+- 🔐 **全面ClearKey解密支持** - 集成专用解密脚本(decrypt_dash.py)，支持yt-dlp、mp4decrypt、FFmpeg多种解密方法
+- 🚀 **智能解密流程** - 自动选择最佳解密工具，解密失败时自动fallback到FFmpeg
+- 🐳 **优化Docker镜像** - 预装yt-dlp、pycryptodome等解密依赖，减少部署复杂度
+- 🎨 **改进Web UI** - 显示解密状态和处理方法，增强流状态可视化
+- 📋 **更新文档** - 完善ClearKey解密说明和故障排除指南
 
 ### v1.1.3 (2025-08-30)
 - 🎯 **完成流配置编辑功能** - Web UI现在支持完整的流配置编辑
