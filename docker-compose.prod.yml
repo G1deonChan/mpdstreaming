@@ -1,13 +1,15 @@
 version: '3.8'
 
+# 生产环境Docker Compose配置
+# 使用预构建镜像，无需本地构建
+
 services:
   mpdstreaming:
-    build: .
-    # 或者使用预构建的镜像 (推荐用于生产环境)
-    # Docker Hub镜像:
-    # image: your-dockerhub-username/mpdstreaming:latest
-    # GitHub Container Registry镜像:
+    # 使用Docker Hub镜像 (推荐)
+    image: your-dockerhub-username/mpdstreaming:latest
+    # 或者使用GitHub Container Registry
     # image: ghcr.io/g1deonchan/mpdstreaming:latest
+    
     container_name: mpd-hls-streamer
     ports:
       - "8080:8080"
@@ -53,7 +55,11 @@ services:
 
   # 监控服务 (可选，使用 --profile monitoring 启用)
   monitor:
-    build: .
+    # 使用相同的镜像
+    image: your-dockerhub-username/mpdstreaming:latest
+    # 或者使用GitHub Container Registry
+    # image: ghcr.io/g1deonchan/mpdstreaming:latest
+    
     container_name: mpd-monitor
     volumes:
       - ./logs:/app/logs

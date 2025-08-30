@@ -72,16 +72,30 @@ start.bat clean
 
 ### 方法2: 使用Docker直接运行
 
+**从Docker Hub拉取 (推荐):**
 ```bash
-# 拉取镜像
-docker pull ghcr.io/your-username/mpdstreaming:latest
+# 拉取最新版本
+docker pull your-dockerhub-username/mpdstreaming:latest
 
 # 运行容器
 docker run -d \
   --name mpd-hls-streamer \
   -p 8080:8080 \
-  -v ./config.yaml:/app/config.yaml \
-  ghcr.io/your-username/mpdstreaming:latest
+  -v ./config.yaml:/app/config.yaml:ro \
+  your-dockerhub-username/mpdstreaming:latest
+```
+
+**从GitHub Container Registry拉取:**
+```bash
+# 拉取最新版本
+docker pull ghcr.io/g1deonchan/mpdstreaming:latest
+
+# 运行容器
+docker run -d \
+  --name mpd-hls-streamer \
+  -p 8080:8080 \
+  -v ./config.yaml:/app/config.yaml:ro \
+  ghcr.io/g1deonchan/mpdstreaming:latest
 ```
 
 ### 方法3: 使用Docker Compose
@@ -317,6 +331,7 @@ python app.py
 - [项目总结](PROJECT_SUMMARY.md) - 项目结构和功能概览
 - [安全指南](SECURITY.md) - 安全配置最佳实践
 - [部署检查清单](DEPLOYMENT_CHECKLIST.md) - 完整的部署验证步骤
+- [Docker Hub配置](DOCKER_HUB_SETUP.md) - Docker Hub发布配置指南
 - [许可证](LICENSE) - MIT许可证详情
 
 ## 许可证

@@ -24,6 +24,12 @@
 - [ ] 验证配置文件不包含真实密钥
 - [ ] 确认防火墙规则允许必要端口
 
+### 4. Docker Hub配置 (可选)
+- [ ] 阅读 `DOCKER_HUB_SETUP.md` 配置指南
+- [ ] 创建Docker Hub账户和访问令牌
+- [ ] 在GitHub仓库设置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` secrets
+- [ ] 验证GitHub Actions权限设置正确
+
 ## 🐳 Docker部署检查
 
 ### 基础部署
@@ -36,8 +42,11 @@ cd mpdstreaming
 cp config.example.yaml config.yaml
 # 编辑config.yaml
 
-# 3. 启动服务
+# 3. 启动服务 (开发环境)
 ./start.sh
+
+# 或者使用生产环境配置
+./start.sh --production
 ```
 
 ### 验证步骤

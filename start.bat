@@ -11,6 +11,7 @@ set BUILD=false
 set PULL=false
 set LOGS=false
 set COMMAND=start
+set PRODUCTION=false
 
 REM 解析命令行参数
 :parse_args
@@ -45,6 +46,10 @@ if "%~1"=="-f" (
 )
 if "%~1"=="--follow" (
     set LOGS=true
+    goto :next_arg
+)
+if "%~1"=="--production" (
+    set PRODUCTION=true
     goto :next_arg
 )
 if "%~1"=="-h" goto :show_help

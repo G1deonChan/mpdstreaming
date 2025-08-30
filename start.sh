@@ -12,6 +12,7 @@ MONITORING=false
 BUILD=false
 PULL=false
 LOGS=false
+PRODUCTION=false
 
 # 颜色输出
 RED='\033[0;31m'
@@ -41,12 +42,14 @@ show_help() {
     echo "  -b, --build         构建镜像后启动"
     echo "  -p, --pull          拉取镜像后启动"
     echo "  -f, --follow        跟随日志输出"
+    echo "  --production        使用生产环境配置"
     echo "  -h, --help          显示此帮助信息"
     echo ""
     echo "示例:"
     echo "  $0                  # 启动基础服务"
     echo "  $0 -m               # 启动服务并启用监控"
     echo "  $0 -b start         # 构建镜像并启动服务"
+    echo "  $0 --production     # 使用生产环境配置启动"
     echo "  $0 logs -f          # 查看并跟随日志"
 }
 
@@ -94,6 +97,12 @@ start_service() {
     
     local compose_cmd=$(get_compose_cmd)
     local profiles=""
+    local compose_file_arg="-f $COMPOSE_FILE"
+    
+    if [ "$PRODUCTION" = true ]; then
+        compose_file_arg="-f docker-compose.prod.yml"
+        echo -e "${YELLOW}使用生产环境配置${NC}"
+    fi
     
     if [ "$MONITORING" = true ]; then
         profiles="--profile monitoring"
@@ -108,7 +117,7 @@ start_service() {
         pull_images
     fi
     
-    $compose_cmd -p $PROJECT_NAME $profiles up -d
+    $compose_cmd $compose_file_arg -p $PROJECT_NAME $profiles up -d
     
     echo -e "${GREEN}服务启动成功${NC}"
     echo ""
@@ -202,6 +211,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -f|--follow)
             LOGS=true
+            shift
+            ;;
+        --production)
+            PRODUCTION=true
             shift
             ;;
         -h|--help)
