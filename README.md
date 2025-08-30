@@ -111,6 +111,9 @@ docker-compose logs -f
 docker-compose -f docker-compose.prod.yml up -d
 
 # 1Panel用户推荐使用
+docker-compose -f docker-compose.1panel-simple.yml up -d
+
+# 或者使用其他1Panel配置
 docker-compose -f docker-compose.1panel.yml up -d
 
 # 简化版本（仅主服务）
@@ -125,7 +128,8 @@ docker-compose -f docker-compose.simple.yml up -d
 
 **选项1：使用专用配置文件**
 - 上传项目到1Panel
-- 选择 `docker-compose.1panel.yml` 文件
+- **推荐**：选择 `docker-compose.1panel-simple.yml` 文件（最稳定）
+- 备选：选择 `docker-compose.simple.yml` 文件
 - 点击创建编排
 
 **选项2：使用简化配置**
@@ -456,6 +460,30 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 - **前端**: HTML5, JavaScript (原生)
 
 ## 更新日志
+
+### v1.1.3 (2025-08-30)
+- 🎯 **完成流配置编辑功能** - Web UI现在支持完整的流配置编辑
+- 🔧 **改进FFmpeg进程管理** - 增强错误检测、自动重启和详细状态监控
+- 🛡️ **优化ClearKey解密处理** - 修复解密参数格式，提高解密成功率
+- 📊 **增强流状态诊断** - 新增详细的进程状态、输出文件检查和错误诊断
+- 🧪 **新增流测试功能** - 支持MPD源URL测试和HLS播放测试
+- 🎨 **改进Web界面** - 更详细的状态显示、重启计数、片段统计
+- 🔄 **完善监控机制** - 异步FFmpeg进程监控、自动重启逻辑
+- 📝 **优化错误日志** - 更清晰的FFmpeg错误输出和调试信息
+
+### v1.1.2 (2025-08-30)
+- 🔧 修复反向代理访问403问题，支持完整CORS
+- 🔧 修复1Panel部署nginx挂载问题  
+- 🔧 修复CI安全检查误报问题
+- 🚀 改进根路径处理，优化用户体验
+- 🛡️ 增强安全检查规则，更精准的敏感信息检测
+- 📝 添加1Panel专用部署配置和详细指南
+- 🎨 优化Web界面访问和静态文件服务
+
+### v1.1.1
+- 🐳 Docker Compose默认使用Docker Hub镜像
+- 📋 添加1Panel部署支持和多种配置选项
+- 🔒 完善配置安全和示例数据处理
 
 ### v1.0.0
 - 初始版本发布

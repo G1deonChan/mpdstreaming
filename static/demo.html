@@ -238,15 +238,69 @@
         </div>
     </div>
 
+    <!-- 编辑流模态框 -->
+    <div class="modal fade" id="editStreamModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title"><i class="fas fa-edit me-2"></i>编辑流配置</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editStreamForm">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">流名称 *</label>
+                                <input type="text" class="form-control" name="name" required placeholder="例如: 示例频道">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">流状态</label>
+                                <div class="form-check form-switch mt-2">
+                                    <input class="form-check-input" type="checkbox" name="enabled">
+                                    <label class="form-check-label">启用流</label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">MPD流地址 *</label>
+                                <input type="url" class="form-control" name="url" required placeholder="https://example.com/stream.mpd">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">许可证类型</label>
+                                <select class="form-select" name="license_type" onchange="toggleEditLicenseKey()">
+                                    <option value="">无</option>
+                                    <option value="clearkey">ClearKey</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6" id="editLicenseKeyGroup" style="display: none;">
+                                <label class="form-label">许可证密钥</label>
+                                <input type="text" class="form-control" name="license_key" placeholder="key_id:key_value">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-warning" onclick="updateStream()">
+                        <span id="editStreamSpinner" class="spinner-border spinner-border-sm me-2" style="display: none;"></span>
+                        <i class="fas fa-save me-1"></i>保存更改
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
         let streams = [];
         let addStreamModal;
+        let editStreamModal;
+        let currentEditingStreamId = null;
 
         document.addEventListener('DOMContentLoaded', function() {
             addStreamModal = new bootstrap.Modal(document.getElementById('addStreamModal'));
+            editStreamModal = new bootstrap.Modal(document.getElementById('editStreamModal'));
             init();
         });
 
@@ -326,6 +380,8 @@
                                 <h6 class="card-title mb-1">
                                     <i class="fas fa-tv me-2"></i>${escapeHtml(stream.name)}
                                     <span class="badge bg-${getStatusColor(stream.status)} ms-2">${getStatusText(stream.status)}</span>
+                                    ${stream.process_status && stream.process_status !== 'stopped' ? 
+                                        `<span class="badge bg-secondary ms-1">${stream.process_status}</span>` : ''}
                                 </h6>
                                 <small class="text-muted d-block mb-2">ID: ${stream.id}</small>
                                 <p class="card-text mb-2">
@@ -333,7 +389,23 @@
                                     ${stream.license_type ? `<span class="badge bg-info ms-2">${stream.license_type.toUpperCase()}</span>` : ''}
                                     ${!stream.enabled ? '<span class="badge bg-warning ms-2">已禁用</span>' : ''}
                                 </p>
-                                ${stream.status === 'running' ? `
+                                ${stream.output_info && stream.output_info.segment_count > 0 ? `
+                                    <small class="text-success">
+                                        <i class="fas fa-check-circle me-1"></i>
+                                        已生成 ${stream.output_info.segment_count} 个视频片段
+                                    </small>
+                                ` : (stream.status === 'running' ? `
+                                    <small class="text-warning">
+                                        <i class="fas fa-clock me-1"></i>正在生成视频片段...
+                                    </small>
+                                ` : '')}
+                                ${stream.process_info && stream.process_info.restart_count > 0 ? `
+                                    <small class="text-warning d-block">
+                                        <i class="fas fa-exclamation-triangle me-1"></i>
+                                        已重启 ${stream.process_info.restart_count} 次
+                                    </small>
+                                ` : ''}
+                                ${stream.status === 'running' && stream.hls_url ? `
                                     <div class="code-block position-relative">
                                         <strong>HLS播放地址:</strong><br>
                                         ${window.location.origin}${stream.hls_url}
@@ -356,12 +428,15 @@
                                     <button class="btn btn-outline-primary btn-sm" onclick="editStream('${stream.id}')">
                                         <i class="fas fa-edit me-1"></i>编辑
                                     </button>
+                                    <button class="btn btn-outline-info btn-sm" onclick="testStreamUrl('${stream.id}')">
+                                        <i class="fas fa-flask me-1"></i>测试源
+                                    </button>
                                     <button class="btn btn-outline-danger btn-sm" onclick="deleteStream('${stream.id}')">
                                         <i class="fas fa-trash me-1"></i>删除
                                     </button>
-                                    ${stream.status === 'running' ? 
-                                        `<button class="btn btn-info btn-sm" onclick="testStream('${stream.id}')">
-                                            <i class="fas fa-external-link-alt me-1"></i>测试
+                                    ${stream.status === 'running' && stream.hls_url ? 
+                                        `<button class="btn btn-info btn-sm" onclick="testHlsPlayback('${stream.id}')">
+                                            <i class="fas fa-play-circle me-1"></i>测试播放
                                         </button>` : ''
                                     }
                                 </div>
@@ -550,8 +625,93 @@
         }
 
         function editStream(streamId) {
-            // 这里可以实现编辑功能
-            showAlert('编辑功能开发中...', 'info');
+            const stream = streams.find(s => s.id === streamId);
+            if (!stream) {
+                showAlert('找不到指定的流', 'error');
+                return;
+            }
+
+            currentEditingStreamId = streamId;
+            
+            // 填充编辑表单
+            const form = document.getElementById('editStreamForm');
+            form.querySelector('[name="name"]').value = stream.name || '';
+            form.querySelector('[name="url"]').value = stream.url || '';
+            form.querySelector('[name="enabled"]').checked = stream.enabled !== false;
+            form.querySelector('[name="license_type"]').value = stream.license_type || '';
+            form.querySelector('[name="license_key"]').value = stream.license_key || '';
+            
+            // 根据许可证类型显示/隐藏密钥输入框
+            toggleEditLicenseKey();
+            
+            editStreamModal.show();
+        }
+
+        function toggleEditLicenseKey() {
+            const licenseType = document.querySelector('#editStreamForm [name="license_type"]').value;
+            const licenseKeyGroup = document.getElementById('editLicenseKeyGroup');
+            if (licenseType === 'clearkey') {
+                licenseKeyGroup.style.display = 'block';
+            } else {
+                licenseKeyGroup.style.display = 'none';
+            }
+        }
+
+        async function updateStream() {
+            if (!currentEditingStreamId) {
+                showAlert('没有选择要编辑的流', 'error');
+                return;
+            }
+
+            const form = document.getElementById('editStreamForm');
+            const spinner = document.getElementById('editStreamSpinner');
+            
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
+            const formData = new FormData(form);
+            const streamData = {
+                name: formData.get('name'),
+                url: formData.get('url'),
+                enabled: formData.has('enabled'),
+                license_type: formData.get('license_type') || null,
+                license_key: formData.get('license_key') || null
+            };
+
+            // 如果没有选择许可证类型，清空密钥
+            if (!streamData.license_type) {
+                streamData.license_key = null;
+            }
+
+            spinner.style.display = 'inline-block';
+
+            try {
+                const response = await fetch(`/streams/${currentEditingStreamId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(streamData)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showAlert('流配置更新成功！', 'success');
+                    editStreamModal.hide();
+                    form.reset();
+                    currentEditingStreamId = null;
+                    await loadStreams();
+                } else {
+                    showAlert(result.error || '更新失败', 'error');
+                }
+            } catch (error) {
+                showAlert('网络错误: ' + error.message, 'error');
+            } finally {
+                spinner.style.display = 'none';
+            }
         }
 
         async function copyToClipboard(text) {
@@ -615,6 +775,77 @@
                     bootstrap.Alert.getOrCreateInstance(alertElement).close();
                 }
             }, 5000);
+        }
+
+        async function testStreamUrl(streamId) {
+            try {
+                const response = await fetch(`/streams/${streamId}/test`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const test = result.test_result;
+                    const statusIcon = test.accessible ? '✅' : '❌';
+                    const statusText = test.accessible ? '可访问' : '无法访问';
+                    
+                    let message = `
+                        <strong>流源测试结果</strong><br>
+                        ${statusIcon} <strong>状态:</strong> ${statusText}<br>
+                        <strong>URL:</strong> ${test.url}<br>
+                        <strong>HTTP状态:</strong> ${test.status_code}<br>
+                        <strong>内容类型:</strong> ${test.content_type}<br>
+                        <strong>服务器:</strong> ${test.server}
+                    `;
+                    
+                    if (test.accessible && test.is_mpd !== undefined) {
+                        message += `<br><strong>MPD格式:</strong> ${test.is_mpd ? '✅ 有效' : '❌ 无效'}`;
+                    }
+                    
+                    if (test.content_preview) {
+                        message += `<br><strong>内容预览:</strong><br><code class="small">${escapeHtml(test.content_preview)}</code>`;
+                    }
+                    
+                    showAlert(message, test.accessible ? 'success' : 'danger');
+                } else {
+                    showAlert(`测试失败: ${result.error}`, 'danger');
+                }
+            } catch (error) {
+                showAlert(`测试失败: ${error.message}`, 'danger');
+            }
+        }
+
+        async function testHlsPlayback(streamId) {
+            const stream = streams.find(s => s.id === streamId);
+            if (!stream || !stream.hls_url) {
+                showAlert('找不到HLS播放地址', 'warning');
+                return;
+            }
+            
+            const hlsUrl = `${window.location.origin}${stream.hls_url}`;
+            
+            try {
+                const response = await fetch(hlsUrl);
+                if (response.ok) {
+                    const playlist = await response.text();
+                    
+                    // 检查playlist是否包含segment信息
+                    const hasSegments = playlist.includes('.ts');
+                    
+                    let message = `
+                        <strong>HLS播放测试</strong><br>
+                        ✅ <strong>播放列表可访问</strong><br>
+                        <strong>URL:</strong> ${hlsUrl}<br>
+                        <strong>包含视频片段:</strong> ${hasSegments ? '✅ 是' : '❌ 否'}<br>
+                        <strong>播放列表内容:</strong><br>
+                        <code class="small">${escapeHtml(playlist.substring(0, 300))}${playlist.length > 300 ? '...' : ''}</code>
+                    `;
+                    
+                    showAlert(message, hasSegments ? 'success' : 'warning');
+                } else {
+                    showAlert(`HLS播放测试失败: HTTP ${response.status}`, 'danger');
+                }
+            } catch (error) {
+                showAlert(`HLS播放测试失败: ${error.message}`, 'danger');
+            }
         }
 
         function showHelp() {

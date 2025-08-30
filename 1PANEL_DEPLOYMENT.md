@@ -15,7 +15,8 @@
 2. **在1Panel中创建编排**
    - 应用商店 → 编排模板 → 创建编排
    - 编排名称：`mpdstreaming`
-   - 选择配置文件：`docker-compose.1panel.yml`
+   - **推荐配置文件**：`docker-compose.1panel-simple.yml`（最稳定，无挂载问题）
+   - 备选配置文件：`docker-compose.simple.yml`
    - 点击"创建"
 
 3. **访问服务**
@@ -125,18 +126,23 @@ environment:
 
 1. **"no such file or directory"错误**
    - 原因：使用了包含`build: .`的配置文件
-   - 解决：使用`docker-compose.1panel.yml`或删除build配置
+   - 解决：使用`docker-compose.1panel-simple.yml`或删除build配置
 
-2. **容器启动失败**
+2. **nginx挂载失败错误**
+   - 错误：`cannot create subdirectories in "/etc/nginx/nginx.conf": not a directory`
+   - 原因：nginx.conf文件挂载路径问题
+   - 解决：使用`docker-compose.1panel-simple.yml`（不包含nginx）
+
+3. **容器启动失败**
    - 检查端口是否被占用
    - 查看容器日志：1Panel → 容器 → 容器列表 → 查看日志
 
-3. **无法访问Web界面**
+4. **无法访问Web界面**
    - 检查防火墙设置
    - 确认端口映射正确
    - 检查容器健康状态
 
-4. **版本警告**
+5. **版本警告**
    - `version` is obsolete 警告可以忽略
    - 或使用不包含version字段的配置文件
 
