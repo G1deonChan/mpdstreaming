@@ -8,25 +8,21 @@ ENV TERM=xterm
 # 设置工作目录
 WORKDIR /app
 
-# 安装系统依赖和解密工具
+# 安装系统依赖和解密工具（合并步骤减少层数）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     wget \
     ca-certificates \
-    python3-pip \
-    && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /tmp/* \
-    && rm -rf /var/tmp/*
-
-# 安装yt-dlp和其他Python解密工具
-RUN pip install --no-cache-dir yt-dlp pycryptodome
+    && rm -rf /var/tmp/* \
+    && pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir yt-dlp pycryptodome
 
 # 复制requirements文件并安装Python依赖
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码和启动脚本
 COPY . .
