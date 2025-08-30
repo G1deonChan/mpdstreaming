@@ -111,6 +111,9 @@ docker-compose logs -f
 docker-compose -f docker-compose.prod.yml up -d
 
 # 1Panel用户推荐使用
+docker-compose -f docker-compose.1panel-simple.yml up -d
+
+# 或者使用其他1Panel配置
 docker-compose -f docker-compose.1panel.yml up -d
 
 # 简化版本（仅主服务）
@@ -125,7 +128,8 @@ docker-compose -f docker-compose.simple.yml up -d
 
 **选项1：使用专用配置文件**
 - 上传项目到1Panel
-- 选择 `docker-compose.1panel.yml` 文件
+- **推荐**：选择 `docker-compose.1panel-simple.yml` 文件（最稳定）
+- 备选：选择 `docker-compose.simple.yml` 文件
 - 点击创建编排
 
 **选项2：使用简化配置**

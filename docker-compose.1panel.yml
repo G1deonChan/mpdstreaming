@@ -27,7 +27,7 @@ services:
     networks:
       - mpd-network
 
-  # Nginx反向代理和HLS文件服务
+  # Nginx反向代理和HLS文件服务 (可选)
   nginx:
     image: nginx:alpine
     container_name: mpd-nginx
@@ -35,9 +35,12 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
+      # 使用默认nginx配置，避免文件挂载问题
+      # - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # - ./ssl:/etc/nginx/ssl:ro
       - /tmp/hls:/usr/share/nginx/html/hls:ro
+    environment:
+      - NGINX_PORT=80
     depends_on:
       - mpdstreaming
     restart: unless-stopped

@@ -1,5 +1,5 @@
-# 简化版Docker Compose - 仅包含主服务
-# 适用于快速部署和测试
+# 1Panel优化配置 - 仅主服务，避免挂载问题
+# 专门为1Panel环境优化，确保部署成功
 
 services:
   mpdstreaming:
@@ -9,7 +9,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # 配置文件将由容器自动创建
+      # 仅使用volume，避免文件挂载问题
       - mpd-config:/app/config
       - mpd-logs:/app/logs
     environment:
