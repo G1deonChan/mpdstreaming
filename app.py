@@ -18,6 +18,9 @@ import shutil
 from urllib.parse import urlparse, urljoin
 import xml.etree.ElementTree as ET
 import base64
+import time
+import requests
+from typing import Dict, List, Optional
 import binascii
 from typing import Dict, List, Optional
 import time
@@ -29,6 +32,131 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class DashDecryptor:
+    """DASH流解密器 - 支持ClearKey解密"""
+    
+    def __init__(self):
+        self.tools = self._detect_tools()
+        logger.info(f"解密工具检测完成: {[k for k, v in self.tools.items() if v]}")
+    
+    def _detect_tools(self) -> Dict[str, bool]:
+        """检测可用的解密工具"""
+        tools = {}
+        for tool in ['yt-dlp', 'youtube-dl', 'ffmpeg']:
+            try:
+                result = subprocess.run([tool, '--version'], 
+                                      capture_output=True, timeout=5)
+                tools[tool] = result.returncode == 0
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                tools[tool] = False
+        return tools
+    
+    async def decrypt_with_yt_dlp(self, mpd_url: str, output_dir: str, 
+                                license_key: str = None) -> Optional[str]:
+        """使用yt-dlp解密DASH流"""
+        if not self.tools.get('yt-dlp'):
+            logger.warning("yt-dlp不可用，尝试其他方法")
+            return None
+        
+        try:
+            temp_output = os.path.join(output_dir, 'temp_video')
+            
+            # 构建yt-dlp命令
+            cmd = [
+                'yt-dlp',
+                '--no-playlist',
+                '--format', 'best[ext=mp4]/best',
+                '--output', f'{temp_output}.%(ext)s',
+                '--no-warnings'
+            ]
+            
+            # 如果有ClearKey许可证
+            if license_key and ':' in license_key:
+                key_id, key = license_key.split(':', 1)
+                # yt-dlp的ClearKey格式
+                cmd.extend([
+                    '--external-downloader', 'ffmpeg',
+                    '--external-downloader-args', f'-decryption_key {key}'
+                ])
+            
+            cmd.append(mpd_url)
+            
+            logger.info(f"执行yt-dlp解密: {mpd_url}")
+            
+            # 异步执行
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                # 查找生成的文件
+                for ext in ['mp4', 'mkv', 'webm']:
+                    potential_file = f'{temp_output}.{ext}'
+                    if os.path.exists(potential_file):
+                        logger.info(f"yt-dlp解密成功: {potential_file}")
+                        return potential_file
+                
+                logger.error("yt-dlp执行成功但找不到输出文件")
+            else:
+                error_msg = stderr.decode('utf-8', errors='ignore')
+                logger.error(f"yt-dlp解密失败: {error_msg}")
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"yt-dlp解密异常: {e}")
+            return None
+    
+    async def convert_to_hls(self, input_file: str, output_dir: str, 
+                           stream_id: str, hls_config: Dict) -> bool:
+        """将解密的视频文件转换为HLS"""
+        try:
+            playlist_path = os.path.join(output_dir, 'playlist.m3u8')
+            
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', input_file,
+                '-c:v', hls_config.get('video_codec', 'libx264'),
+                '-c:a', hls_config.get('audio_codec', 'aac'),
+                '-f', 'hls',
+                '-hls_time', str(hls_config.get('hls_time', 6)),
+                '-hls_list_size', str(hls_config.get('hls_list_size', 10)),
+                '-hls_flags', hls_config.get('hls_flags', 'delete_segments'),
+                '-hls_segment_filename', os.path.join(output_dir, 'segment_%03d.ts'),
+                playlist_path
+            ]
+            
+            logger.info(f"转换为HLS: {stream_id}")
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0 and os.path.exists(playlist_path):
+                logger.info(f"HLS转换成功: {playlist_path}")
+                # 删除临时的解密文件
+                try:
+                    os.remove(input_file)
+                except:
+                    pass
+                return True
+            else:
+                error_msg = stderr.decode('utf-8', errors='ignore')
+                logger.error(f"HLS转换失败: {error_msg}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"HLS转换异常: {e}")
+            return False
+
 class MPDToHLSStreamer:
     def __init__(self, config_path: str = None):
         # 使用环境变量或默认路径
@@ -39,6 +167,7 @@ class MPDToHLSStreamer:
         self.temp_dir = tempfile.mkdtemp()
         self.sessions: Dict[str, dict] = {}
         self.active_streams: Dict[str, dict] = {}  # 记录活跃的流状态
+        self.dash_decryptor = DashDecryptor()  # 初始化解密器
         logger.info(f"初始化MPD转HLS流媒体服务器，临时目录: {self.temp_dir}")
         logger.info(f"配置文件路径: {self.config_path}")
 
@@ -157,6 +286,9 @@ class MPDToHLSStreamer:
         """解析ClearKey许可证"""
         if ':' in license_key:
             key_id, key = license_key.split(':', 1)
+            # 移除可能的空格和特殊字符
+            key_id = key_id.strip()
+            key = key.strip()
             return {
                 'key_id': key_id,
                 'key': key
@@ -172,6 +304,7 @@ class MPDToHLSStreamer:
         # FFmpeg命令构建
         cmd = [
             'ffmpeg',
+            '-y',  # 覆盖输出文件
             '-i', mpd_url,
             '-c:v', self.config['ffmpeg']['video_codec'],
             '-c:a', self.config['ffmpeg']['audio_codec'],
@@ -187,36 +320,141 @@ class MPDToHLSStreamer:
         if license_key:
             clearkey = self.parse_clearkey_license(license_key)
             if clearkey:
-                # 添加解密密钥
+                # FFmpeg需要单独的key参数（仅使用key值，不包含key_id）
                 cmd.extend(['-decryption_key', clearkey['key']])
+                logger.info(f"使用ClearKey解密: key_id={clearkey['key_id']}, key=***")
 
-        logger.info(f"启动FFmpeg进程: {' '.join(cmd)}")
+        logger.info(f"启动FFmpeg进程: {' '.join(cmd[:10])}... (已隐藏敏感参数)")
         
-        # 启动FFmpeg进程
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
+        try:
+            # 启动FFmpeg进程
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # 合并stderr到stdout
+                universal_newlines=True,
+                bufsize=1  # 行缓冲
+            )
 
-        # 保存会话信息
-        self.sessions[stream_id] = {
-            'process': process,
-            'output_dir': output_dir,
-            'created_at': time.time(),
-            'status': 'starting'
-        }
+            # 保存会话信息
+            self.sessions[stream_id] = {
+                'process': process,
+                'output_dir': output_dir,
+                'created_at': time.time(),
+                'status': 'starting',
+                'cmd': cmd,
+                'restart_count': 0
+            }
+            
+            # 更新活跃流状态
+            self.active_streams[stream_id] = {
+                'status': 'starting',
+                'started_at': time.time(),
+                'mpd_url': mpd_url,
+                'license_key': license_key
+            }
+
+            # 异步监控FFmpeg进程
+            asyncio.create_task(self._monitor_ffmpeg_process(stream_id))
+
+            return os.path.join(output_dir, 'playlist.m3u8')
+            
+        except Exception as e:
+            logger.error(f"启动FFmpeg失败: {e}")
+            # 清理会话
+            if stream_id in self.sessions:
+                del self.sessions[stream_id]
+            if stream_id in self.active_streams:
+                del self.active_streams[stream_id]
+            raise
+
+    async def _monitor_ffmpeg_process(self, stream_id: str):
+        """监控FFmpeg进程状态"""
+        if stream_id not in self.sessions:
+            return
         
-        # 更新活跃流状态
-        self.active_streams[stream_id] = {
-            'status': 'running',
-            'started_at': time.time(),
-            'mpd_url': mpd_url,
-            'license_key': license_key
-        }
-
-        return os.path.join(output_dir, 'playlist.m3u8')
+        session = self.sessions[stream_id]
+        process = session['process']
+        max_restarts = 3
+        
+        try:
+            # 等待进程启动
+            await asyncio.sleep(2)
+            
+            # 检查进程状态
+            if process.poll() is not None:
+                # 进程已退出，读取输出
+                stdout, stderr = process.communicate()
+                logger.error(f"FFmpeg进程意外退出 (stream_id: {stream_id})")
+                logger.error(f"返回码: {process.returncode}")
+                if stdout:
+                    logger.error(f"标准输出: {stdout}")
+                if stderr:
+                    logger.error(f"错误输出: {stderr}")
+                
+                # 更新状态
+                if stream_id in self.active_streams:
+                    self.active_streams[stream_id]['status'] = 'error'
+                session['status'] = 'error'
+                
+                # 尝试重启（如果重启次数未超限）
+                if session.get('restart_count', 0) < max_restarts:
+                    session['restart_count'] = session.get('restart_count', 0) + 1
+                    logger.info(f"尝试重启FFmpeg进程 (stream_id: {stream_id}, 第{session['restart_count']}次)")
+                    await self._restart_ffmpeg_process(stream_id)
+                else:
+                    logger.error(f"FFmpeg进程重启次数超限，停止重试 (stream_id: {stream_id})")
+            else:
+                # 进程正在运行，等待一段时间后检查playlist文件
+                await asyncio.sleep(5)
+                playlist_path = os.path.join(session['output_dir'], 'playlist.m3u8')
+                
+                if os.path.exists(playlist_path):
+                    # 更新状态为运行中
+                    if stream_id in self.active_streams:
+                        self.active_streams[stream_id]['status'] = 'running'
+                    session['status'] = 'running'
+                    logger.info(f"FFmpeg流已成功启动 (stream_id: {stream_id})")
+                else:
+                    logger.warning(f"FFmpeg进程运行但未生成playlist文件 (stream_id: {stream_id})")
+                
+        except Exception as e:
+            logger.error(f"监控FFmpeg进程时出错 (stream_id: {stream_id}): {e}")
+    
+    async def _restart_ffmpeg_process(self, stream_id: str):
+        """重启FFmpeg进程"""
+        if stream_id not in self.sessions:
+            return
+        
+        session = self.sessions[stream_id]
+        
+        # 停止旧进程
+        if session['process'].poll() is None:
+            session['process'].terminate()
+            await asyncio.sleep(1)
+            if session['process'].poll() is None:
+                session['process'].kill()
+        
+        # 获取流配置
+        stream_config = None
+        for stream in self.config['streams']:
+            if stream['id'] == stream_id:
+                stream_config = stream
+                break
+        
+        if not stream_config:
+            logger.error(f"找不到流配置，无法重启 (stream_id: {stream_id})")
+            return
+        
+        try:
+            # 重新启动
+            await self.create_hls_stream(
+                stream_id,
+                stream_config['url'],
+                stream_config.get('license_key')
+            )
+        except Exception as e:
+            logger.error(f"重启FFmpeg进程失败 (stream_id: {stream_id}): {e}")
 
     async def handle_stream_request(self, request):
         """处理流请求"""
@@ -467,18 +705,105 @@ class MPDToHLSStreamer:
         session_info = self.sessions.get(stream_id, {})
         active_info = self.active_streams.get(stream_id, {})
         
+        # 检查FFmpeg进程状态
+        process_status = 'stopped'
+        process_info = {}
+        
+        if session_info and 'process' in session_info:
+            process = session_info['process']
+            if process.poll() is None:
+                process_status = 'running'
+                process_info = {
+                    'pid': process.pid,
+                    'cmd': session_info.get('cmd', [])[:5],  # 只显示命令的前几个参数
+                }
+            else:
+                process_status = 'exited'
+                process_info = {
+                    'returncode': process.returncode,
+                    'restart_count': session_info.get('restart_count', 0)
+                }
+        
+        # 检查输出文件
+        playlist_exists = False
+        segment_count = 0
+        if session_info and 'output_dir' in session_info:
+            playlist_path = os.path.join(session_info['output_dir'], 'playlist.m3u8')
+            playlist_exists = os.path.exists(playlist_path)
+            
+            # 统计segment文件数量
+            if os.path.exists(session_info['output_dir']):
+                try:
+                    segment_files = [f for f in os.listdir(session_info['output_dir']) if f.endswith('.ts')]
+                    segment_count = len(segment_files)
+                except:
+                    segment_count = 0
+        
         status = {
             'id': stream_id,
             'name': stream_config['name'],
             'enabled': stream_config.get('enabled', True),
             'running': stream_id in self.sessions,
             'status': active_info.get('status', 'stopped'),
+            'process_status': process_status,
+            'process_info': process_info,
             'started_at': active_info.get('started_at'),
             'uptime': time.time() - active_info.get('started_at', time.time()) if active_info.get('started_at') else 0,
-            'hls_url': f'/stream/{stream_id}/playlist.m3u8' if stream_id in self.sessions else None
+            'hls_url': f'/stream/{stream_id}/playlist.m3u8' if stream_id in self.sessions else None,
+            'output_info': {
+                'playlist_exists': playlist_exists,
+                'segment_count': segment_count,
+                'output_dir': session_info.get('output_dir') if session_info else None
+            }
         }
         
         return web.json_response(status)
+    
+    async def handle_test_stream(self, request):
+        """测试流URL是否可访问"""
+        stream_id = request.match_info['stream_id']
+        
+        # 检查流配置是否存在
+        stream_config = None
+        for stream in self.config['streams']:
+            if stream['id'] == stream_id:
+                stream_config = stream
+                break
+        
+        if not stream_config:
+            return web.json_response({'success': False, 'error': '流不存在'}, status=404)
+        
+        try:
+            # 测试MPD URL访问
+            async with ClientSession() as session:
+                async with session.get(stream_config['url'], timeout=10) as response:
+                    test_result = {
+                        'url': stream_config['url'],
+                        'accessible': response.status == 200,
+                        'status_code': response.status,
+                        'content_type': response.headers.get('content-type', 'unknown'),
+                        'content_length': response.headers.get('content-length', 'unknown'),
+                        'server': response.headers.get('server', 'unknown')
+                    }
+                    
+                    if response.status == 200:
+                        # 读取部分内容检查是否为有效的MPD
+                        content_preview = await response.text()
+                        test_result['is_mpd'] = 'MPD' in content_preview[:1000]
+                        test_result['content_preview'] = content_preview[:200] + '...' if len(content_preview) > 200 else content_preview
+                    
+                    return web.json_response({'success': True, 'test_result': test_result})
+                    
+        except Exception as e:
+            return web.json_response({
+                'success': False, 
+                'error': f'测试失败: {str(e)}',
+                'test_result': {
+                    'url': stream_config['url'],
+                    'accessible': False,
+                    'error': str(e)
+                }
+            })
 
     async def handle_list_streams(self, request):
         """列出所有流"""
@@ -567,6 +892,7 @@ class MPDToHLSStreamer:
         app.router.add_post('/streams/{stream_id}/start', self.handle_start_stream)
         app.router.add_post('/streams/{stream_id}/stop', self.handle_stop_stream)
         app.router.add_get('/streams/{stream_id}/status', self.handle_get_stream_status)
+        app.router.add_get('/streams/{stream_id}/test', self.handle_test_stream)
         app.router.add_get('/stream/{stream_id}/playlist.m3u8', self.handle_stream_request)
         app.router.add_get('/stream/{stream_id}/{segment}', self.handle_segment_request)
         
