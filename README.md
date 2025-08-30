@@ -5,7 +5,10 @@
 ## 功能特性
 
 - 🎥 支持MPD到HLS的实时转换
-- 🔐 支持ClearKey许可证解密
+- 🔐 **增强的ClearKey解密支持** (新功能)
+  - 独立的ClearKey解密器，不依赖FFmpeg的有限支持
+  - 多级解密方法：原生Python解密器 → yt-dlp → FFmpeg后备
+  - 支持标准ClearKey格式和Kodi播放列表格式
 - ⚙️ 通过YAML配置文件管理流
 - 🐳 Docker容器化部署
 - 🏗️ GitHub Actions CI/CD (仅在发布时构建镜像)
@@ -262,6 +265,53 @@ curl -X POST http://localhost:8080/streams \
 
 #### 获取HLS流
 访问 `http://localhost:8080/stream/{stream_id}/playlist.m3u8`
+
+## 🔐 ClearKey解密功能
+
+### 概述
+本项目包含增强的ClearKey解密功能，解决了FFmpeg原生ClearKey支持有限的问题。提供多种解密方法确保最大的兼容性。
+
+### 解密方法
+1. **独立Python解密器** - 原生DASH解析和AES解密
+2. **yt-dlp集成** - 通过yt-dlp的外部下载器功能
+3. **FFmpeg后备** - 使用FFmpeg的有限ClearKey支持
+
+### 支持的ClearKey格式
+```bash
+# 标准格式
+key_id:key_value
+
+# 实际示例 (128位十六进制)
+1234567890abcdef1234567890abcdef:fedcba0987654321fedcba0987654321
+
+# Kodi播放列表格式
+#KODIPROP:inputstream.adaptive.manifest_type=mpd
+#KODIPROP:inputstream.adaptive.license_type=clearkey
+#KODIPROP:inputstream.adaptive.license_key=key_id:key_value
+https://example.com/stream.mpd
+```
+
+### 独立使用ClearKey解密器
+```bash
+# 基本用法
+python3 clearkey_decrypt.py "https://example.com/stream.mpd" \
+  --license-key "key_id:key_value" \
+  --output-dir "./decrypted"
+
+# 指定解密方法
+python3 clearkey_decrypt.py "https://example.com/stream.mpd" \
+  --license-key "key_id:key_value" \
+  --method native \
+  --verbose
+```
+
+### 功能演示
+```bash
+# 运行功能演示
+python demo_clearkey.py
+```
+
+📚 **详细文档**: 查看 [CLEARKEY_DECRYPTION.md](CLEARKEY_DECRYPTION.md) 了解完整的解密功能说明。
 
 ### 命令行工具
 
