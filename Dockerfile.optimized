@@ -1,0 +1,69 @@
+# 优化版Dockerfile - 多阶段构建
+FROM python:3.11-slim as builder
+
+# 设置构建环境
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# 只安装必要的构建工具
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装Python依赖到临时目录
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --user -r requirements.txt \
+    && pip install --no-cache-dir --user yt-dlp pycryptodome
+
+# 运行时阶段
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TERM=xterm
+ENV PYTHONPATH=/app
+ENV CONFIG_PATH=/app/config/config.yaml
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+# 只安装运行时依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# 从builder阶段复制Python包
+COPY --from=builder /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
+
+# 复制应用代码
+COPY . .
+COPY entrypoint.sh /app/
+
+# 创建必要的目录和权限
+RUN mkdir -p static logs config \
+    && chmod +x *.py \
+    && chmod +x entrypoint.sh \
+    && find . -name "*.sh" -exec chmod +x {} \;
+
+# 创建非root用户
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+    && chown -R appuser:appuser /app \
+    && mkdir -p /tmp/hls \
+    && chown -R appuser:appuser /tmp/hls
+
+USER appuser
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["python", "app.py"]
