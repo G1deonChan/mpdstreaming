@@ -314,11 +314,114 @@ class MPDToHLSStreamer:
             }
         return {}
 
+    async def test_stream_connectivity(self, url: str, timeout: int = 10) -> bool:
+        """测试流URL的连接性"""
+        try:
+            async with ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+                async with session.head(url) as response:
+                    logger.info(f"流连接测试: {url} - {response.status}")
+                    return response.status in [200, 206, 302, 404]  # 404可能是正常的（某些MPD endpoint）
+        except asyncio.TimeoutError:
+            logger.warning(f"流连接测试超时: {url}")
+            return False
+        except Exception as e:
+            logger.warning(f"流连接测试失败: {url} - {e}")
+            return False
+
+    def _analyze_ffmpeg_error(self, output: str, return_code: int) -> str:
+        """分析FFmpeg错误信息"""
+        if not output:
+            return f"进程异常退出 (代码: {return_code})"
+        
+        output_lower = output.lower()
+        
+        # 网络连接错误
+        if "connection reset by peer" in output_lower:
+            return "网络连接被重置，可能是源服务器问题或网络不稳定"
+        elif "connection refused" in output_lower:
+            return "连接被拒绝，源服务器可能不可达"
+        elif "timeout" in output_lower or "timed out" in output_lower:
+            return "连接超时，网络延迟过高或源服务器响应慢"
+        elif "403" in output_lower or "forbidden" in output_lower:
+            return "访问被禁止，可能需要认证或IP被封"
+        elif "404" in output_lower or "not found" in output_lower:
+            return "资源不存在，URL可能已失效"
+        elif "500" in output_lower or "internal server error" in output_lower:
+            return "源服务器内部错误"
+        
+        # SSL/TLS错误
+        elif "ssl" in output_lower or "tls" in output_lower:
+            return "SSL/TLS握手失败，可能是证书问题"
+        
+        # 格式/编解码错误
+        elif "invalid data" in output_lower or "corrupt" in output_lower:
+            return "数据损坏或格式不支持"
+        elif "no decoder" in output_lower:
+            return "缺少解码器或格式不支持"
+        
+        # 解密相关错误
+        elif "decryption" in output_lower:
+            return "解密失败，密钥可能不正确"
+        
+        # 输出相关错误
+        elif "permission denied" in output_lower:
+            return "文件权限错误"
+        elif "disk full" in output_lower or "no space" in output_lower:
+            return "磁盘空间不足"
+        
+        return f"未知错误 (代码: {return_code})"
+
+    def _should_retry_error(self, error_analysis: str, current_restarts: int) -> bool:
+        """判断错误是否应该重试"""
+        error_lower = error_analysis.lower()
+        
+        # 不应重试的错误
+        if any(keyword in error_lower for keyword in [
+            "403", "forbidden", "not found", "404", 
+            "permission denied", "disk full", "no space",
+            "no decoder", "format not support", "被禁止", "不存在"
+        ]):
+            return False
+        
+        # 网络相关错误应该重试，但次数递减
+        if any(keyword in error_lower for keyword in [
+            "connection", "timeout", "network", "ssl", "tls", "连接", "超时", "网络"
+        ]):
+            return current_restarts < 2  # 网络错误最多重试2次
+        
+        # 其他错误可以重试
+        return True
+
+    def _get_retry_delay(self, error_analysis: str, retry_count: int) -> int:
+        """根据错误类型和重试次数获取延迟时间"""
+        base_delay = 5
+        error_lower = error_analysis.lower()
+        
+        # 网络错误使用指数退避
+        if any(keyword in error_lower for keyword in [
+            "connection", "timeout", "network", "连接", "超时", "网络"
+        ]):
+            return min(base_delay * (2 ** (retry_count - 1)), 30)
+        
+        # 服务器错误稍长延迟
+        if any(keyword in error_lower for keyword in [
+            "500", "internal server error", "ssl", "tls"
+        ]):
+            return base_delay * 2
+        
+        return base_delay
+
     async def create_hls_stream(self, stream_id: str, mpd_url: str, 
                               license_key: str = None) -> str:
         """创建HLS流"""
         output_dir = os.path.join(self.temp_dir, stream_id)
         os.makedirs(output_dir, exist_ok=True)
+        
+        # 首先测试流URL连接性
+        logger.info(f"测试流URL连接性: {mpd_url}")
+        if not await self.test_stream_connectivity(mpd_url):
+            logger.error(f"流URL连接失败，无法创建HLS流: {stream_id}")
+            raise Exception(f"无法连接到流URL: {mpd_url}")
         
         # 如果MPD流需要解密
         if license_key and 'clearkey' in license_key.lower():
@@ -382,6 +485,11 @@ class MPDToHLSStreamer:
         cmd = [
             'ffmpeg',
             '-y',  # 覆盖输出文件
+            '-reconnect', '1',  # 启用自动重连
+            '-reconnect_streamed', '1',  # 对流媒体启用重连
+            '-reconnect_delay_max', '30',  # 最大重连延迟30秒
+            '-timeout', '30000000',  # 30秒超时（微秒）
+            '-user_agent', 'Mozilla/5.0 (compatible; MPD-HLS-Streamer)',  # 设置User-Agent
             '-i', mpd_url,
             '-c:v', self.config['ffmpeg']['video_codec'],
             '-c:a', self.config['ffmpeg']['audio_codec'],
@@ -398,7 +506,10 @@ class MPDToHLSStreamer:
             clearkey = self.parse_clearkey_license(license_key)
             if clearkey:
                 # FFmpeg需要单独的key参数（仅使用key值，不包含key_id）
-                cmd.extend(['-decryption_key', clearkey['key']])
+                # 在输入之前添加解密参数
+                decrypt_idx = cmd.index('-i')
+                cmd.insert(decrypt_idx, '-decryption_key')
+                cmd.insert(decrypt_idx + 1, clearkey['key'])
                 logger.info(f"使用FFmpeg ClearKey fallback: key_id={clearkey['key_id']}, key=***")
 
         logger.info(f"启动FFmpeg进程: {' '.join(cmd[:10])}... (已隐藏敏感参数)")
@@ -461,8 +572,15 @@ class MPDToHLSStreamer:
             
             # 检查进程状态
             if process.poll() is not None:
-                # 进程已退出，读取输出
-                stdout, stderr = process.communicate()
+                # 进程已退出，尝试读取输出
+                try:
+                    # 使用非阻塞方式读取输出
+                    stdout = process.stdout.read() if process.stdout else ""
+                    stderr = ""  # stderr已合并到stdout
+                except:
+                    stdout = ""
+                    stderr = ""
+                
                 logger.error(f"FFmpeg进程意外退出 (stream_id: {stream_id})")
                 logger.error(f"返回码: {process.returncode}")
                 if stdout:
@@ -470,18 +588,36 @@ class MPDToHLSStreamer:
                 if stderr:
                     logger.error(f"错误输出: {stderr}")
                 
+                # 分析错误类型
+                error_analysis = self._analyze_ffmpeg_error(stdout, process.returncode)
+                logger.info(f"错误分析: {error_analysis}")
+                
                 # 更新状态
                 if stream_id in self.active_streams:
                     self.active_streams[stream_id]['status'] = 'error'
+                    self.active_streams[stream_id]['error'] = error_analysis
                 session['status'] = 'error'
+                session['error'] = error_analysis
                 
-                # 尝试重启（如果重启次数未超限）
-                if session.get('restart_count', 0) < max_restarts:
-                    session['restart_count'] = session.get('restart_count', 0) + 1
+                # 正确递增重启计数器
+                current_restarts = session.get('restart_count', 0)
+                
+                # 根据错误类型决定是否重试
+                should_retry = self._should_retry_error(error_analysis, current_restarts)
+                
+                # 尝试重启（如果重启次数未超限且错误可重试）
+                if current_restarts < max_restarts and should_retry:
+                    session['restart_count'] = current_restarts + 1
                     logger.info(f"尝试重启FFmpeg进程 (stream_id: {stream_id}, 第{session['restart_count']}次)")
+                    
+                    # 根据错误类型调整延迟时间
+                    delay = self._get_retry_delay(error_analysis, session['restart_count'])
+                    await asyncio.sleep(delay)
+                    
                     await self._restart_ffmpeg_process(stream_id)
                 else:
-                    logger.error(f"FFmpeg进程重启次数超限，停止重试 (stream_id: {stream_id})")
+                    reason = "重启次数超限" if current_restarts >= max_restarts else "错误不可重试"
+                    logger.error(f"FFmpeg进程停止重试: {reason} (stream_id: {stream_id})")
             else:
                 # 进程正在运行，等待一段时间后检查playlist文件
                 await asyncio.sleep(5)
@@ -525,14 +661,36 @@ class MPDToHLSStreamer:
             return
         
         try:
-            # 重新启动
+            # 保留重启计数器和错误信息
+            restart_count = session.get('restart_count', 0)
+            error_info = session.get('error', '')
+            
+            # 重新启动（清理旧会话，但保持重启计数）
+            if stream_id in self.sessions:
+                del self.sessions[stream_id]
+            if stream_id in self.active_streams:
+                del self.active_streams[stream_id]
+            
+            # 延迟一段时间再重启
+            await asyncio.sleep(1)
+            
             await self.create_hls_stream(
                 stream_id,
                 stream_config['url'],
                 stream_config.get('license_key')
             )
+            
+            # 恢复重启计数器和错误信息
+            if stream_id in self.sessions:
+                self.sessions[stream_id]['restart_count'] = restart_count
+                self.sessions[stream_id]['last_error'] = error_info
+                
         except Exception as e:
             logger.error(f"重启FFmpeg进程失败 (stream_id: {stream_id}): {e}")
+            # 标记为失败状态
+            if stream_id in self.active_streams:
+                self.active_streams[stream_id]['status'] = 'failed'
+                self.active_streams[stream_id]['error'] = str(e)
 
     async def handle_stream_request(self, request):
         """处理流请求"""
