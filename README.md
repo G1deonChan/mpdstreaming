@@ -123,10 +123,40 @@ python app.py
 
 ## 配置说明
 
+### 🔧 自动配置 (推荐)
+
+容器启动时会**自动创建**默认配置文件，无需手动准备：
+
+- 容器首次启动时自动创建 `config.yaml`
+- 包含示例流配置，可立即使用  
+- 通过Web界面轻松管理所有配置
+- 配置更改自动持久化到文件
+
+**Docker运行示例**:
+```bash
+# 无需提前准备config.yaml文件
+docker run -d \
+  --name mpd-hls-streamer \
+  -p 8080:8080 \
+  xinmeng96/mpdstreaming:latest
+```
+
+### ⚙️ 手动配置 (可选)
+
 ⚠️ **安全提醒**: 请查看 [SECURITY.md](SECURITY.md) 了解安全配置最佳实践。
 
-编辑 `config.yaml` 文件来配置您的流（或从 `config.example.yaml` 复制）：
+如果需要自定义配置，可以挂载您自己的 `config.yaml` 文件：
 
+```bash
+# 使用自定义配置文件
+docker run -d \
+  --name mpd-hls-streamer \
+  -p 8080:8080 \
+  -v ./my-config.yaml:/app/config/config.yaml:ro \
+  xinmeng96/mpdstreaming:latest
+```
+
+**配置文件格式**:
 ```yaml
 # 注意：这些是示例值，请替换为您的实际配置
 server:

@@ -11,12 +11,13 @@
 - [ ] 网络端口8080可用
 - [ ] 足够的磁盘空间 (建议至少5GB)
 
-### 2. 配置文件准备
-- [ ] 复制 `config.example.yaml` 为 `config.yaml`
-- [ ] 更新MPD流URL为实际地址
-- [ ] 配置正确的license_key (如果需要)
-- [ ] 验证YAML格式正确性
-- [ ] 确保敏感信息已替换为示例值
+### 2. 配置文件准备 (可选)
+- [ ] **自动配置**: 容器将自动创建默认配置文件 ✅
+- [ ] **手动配置** (可选): 复制 `config.example.yaml` 为 `config.yaml`
+- [ ] **自定义配置** (可选): 更新MPD流URL为实际地址
+- [ ] **许可证配置** (可选): 配置正确的license_key (如果需要)
+- [ ] 验证YAML格式正确性 (如果使用自定义配置)
+- [ ] 确保敏感信息已替换为示例值 (如果使用自定义配置)
 
 ### 3. 安全检查
 - [ ] 阅读 `SECURITY.md` 安全指南
@@ -35,15 +36,14 @@
 
 ### 基础部署
 ```bash
-# 1. 克隆项目
-git clone <your-repo-url>
-cd mpdstreaming
+# 1. 拉取或构建镜像
+docker pull xinmeng96/mpdstreaming:latest
+# 或者克隆项目本地构建
 
-# 2. 检查配置
-cp config.example.yaml config.yaml
-# 编辑config.yaml
+# 2. 直接启动 (使用自动配置)
+docker run -d --name mpd-hls-streamer -p 8080:8080 xinmeng96/mpdstreaming:latest
 
-# 3. 启动服务 (开发环境)
+# 或者使用Docker Compose
 ./start.sh
 
 # 或者使用生产环境配置

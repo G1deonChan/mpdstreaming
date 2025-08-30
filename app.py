@@ -30,24 +30,59 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MPDToHLSStreamer:
-    def __init__(self, config_path: str = 'config.yaml'):
+    def __init__(self, config_path: str = None):
+        # 使用环境变量或默认路径
+        if config_path is None:
+            config_path = os.getenv('CONFIG_PATH', '/app/config/config.yaml')
         self.config_path = config_path
         self.config = self.load_config()
         self.temp_dir = tempfile.mkdtemp()
         self.sessions: Dict[str, dict] = {}
         self.active_streams: Dict[str, dict] = {}  # 记录活跃的流状态
         logger.info(f"初始化MPD转HLS流媒体服务器，临时目录: {self.temp_dir}")
+        logger.info(f"配置文件路径: {self.config_path}")
 
     def load_config(self) -> dict:
-        """加载配置文件"""
+        """加载配置文件，如果不存在则创建默认配置文件"""
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
             logger.info(f"已加载配置文件: {self.config_path}")
             return config
         except FileNotFoundError:
-            logger.warning(f"配置文件 {self.config_path} 不存在，使用默认配置")
+            logger.info(f"配置文件 {self.config_path} 不存在，正在创建默认配置文件...")
+            default_config = self.get_default_config()
+            self.save_default_config(default_config)
+            return default_config
+        except Exception as e:
+            logger.error(f"加载配置文件时出错: {e}")
+            logger.info("使用默认配置")
             return self.get_default_config()
+
+    def save_default_config(self, config: dict):
+        """保存默认配置到文件"""
+        try:
+            # 确保配置目录存在
+            config_dir = Path(self.config_path).parent
+            config_dir.mkdir(parents=True, exist_ok=True)
+            
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(config, f, default_flow_style=False, allow_unicode=True, indent=2)
+            logger.info(f"已创建默认配置文件: {self.config_path}")
+        except Exception as e:
+            logger.error(f"创建配置文件时出错: {e}")
+            logger.info("继续使用内存中的默认配置")
+
+    def save_config(self):
+        """保存当前配置到文件"""
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True, indent=2)
+            logger.info(f"配置已保存到: {self.config_path}")
+            return True
+        except Exception as e:
+            logger.error(f"保存配置文件时出错: {e}")
+            return False
 
     def get_default_config(self) -> dict:
         """获取默认配置"""
@@ -56,7 +91,26 @@ class MPDToHLSStreamer:
                 'host': '0.0.0.0',
                 'port': 8080
             },
-            'streams': [],
+            'streams': [
+                {
+                    'id': 'example_stream_1',
+                    'name': '示例MPD流1',
+                    'url': 'https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd',
+                    'manifest_type': 'mpd',
+                    'license_type': 'clearkey',
+                    'license_key': 'example_key_id:example_key_value',
+                    'active': False
+                },
+                {
+                    'id': 'example_stream_2', 
+                    'name': '示例MPD流2',
+                    'url': 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.mpd',
+                    'manifest_type': 'mpd',
+                    'license_type': 'none',
+                    'license_key': '',
+                    'active': False
+                }
+            ],
             'ffmpeg': {
                 'hls_time': 6,
                 'hls_list_size': 10,
@@ -261,8 +315,7 @@ class MPDToHLSStreamer:
             self.config['streams'].append(new_stream)
             
             # 保存配置
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
+            self.save_config()
             
             return web.json_response({
                 'success': True,
@@ -295,8 +348,7 @@ class MPDToHLSStreamer:
                     })
                     
                     # 保存配置
-                    with open(self.config_path, 'w', encoding='utf-8') as f:
-                        yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
+                    self.save_config()
                     
                     return web.json_response({'success': True})
             
@@ -321,8 +373,7 @@ class MPDToHLSStreamer:
             
             if len(self.config['streams']) < original_count:
                 # 保存配置
-                with open(self.config_path, 'w', encoding='utf-8') as f:
-                    yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
+                self.save_config()
                 
                 # 从活跃流中删除
                 if stream_id in self.active_streams:

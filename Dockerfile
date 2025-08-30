@@ -24,23 +24,27 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# 复制应用代码
+# 复制应用代码和启动脚本
 COPY . .
+COPY entrypoint.sh /app/
 
 # 创建必要的目录
-RUN mkdir -p static logs \
+RUN mkdir -p static logs config \
     && chmod +x *.py \
+    && chmod +x entrypoint.sh \
     && find . -name "*.sh" -exec chmod +x {} \;
 
 # 设置环境变量
 ENV PYTHONPATH=/app \
-    CONFIG_PATH=/app/config.yaml \
+    CONFIG_PATH=/app/config/config.yaml \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 # 创建非root用户
 RUN groupadd -r appuser && useradd -r -g appuser appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app \
+    && mkdir -p /tmp/hls \
+    && chown -R appuser:appuser /tmp/hls
 
 # 切换到非root用户
 USER appuser
@@ -53,4 +57,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/health || exit 1
 
 # 启动命令
-CMD ["python", "app.py"]
+CMD ["/app/entrypoint.sh"]

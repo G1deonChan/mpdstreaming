@@ -14,11 +14,13 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      # 配置文件将由容器自动创建，也可以通过volume挂载自定义配置  
+      # - ./config.yaml:/app/config.yaml:ro
+      - mpd-config:/app/config
       - ./logs:/app/logs
       - /tmp/hls:/tmp/hls
     environment:
-      - CONFIG_PATH=/app/config.yaml
+      - CONFIG_PATH=/app/config/config.yaml
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
     restart: unless-stopped
@@ -80,3 +82,5 @@ networks:
 
 volumes:
   logs:
+  mpd-config:
+    driver: local
