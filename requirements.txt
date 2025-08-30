@@ -1,3 +1,5 @@
 aiohttp==3.9.1
 PyYAML==6.0.1
 requests==2.31.0
+pycryptodome==3.23.0
+yt-dlp>=2024.1.0

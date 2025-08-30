@@ -37,7 +37,10 @@ class DashDecryptor:
     
     def __init__(self):
         self.tools = self._detect_tools()
+        self.clearkey_script = self._find_clearkey_script()
         logger.info(f"解密工具检测完成: {[k for k, v in self.tools.items() if v]}")
+        if self.clearkey_script:
+            logger.info(f"找到ClearKey解密脚本: {self.clearkey_script}")
     
     def _detect_tools(self) -> Dict[str, bool]:
         """检测可用的解密工具"""
@@ -50,6 +53,23 @@ class DashDecryptor:
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 tools[tool] = False
         return tools
+    
+    def _find_clearkey_script(self) -> Optional[str]:
+        """查找ClearKey解密脚本"""
+        script_name = 'clearkey_decrypt.py'
+        
+        # 在当前目录查找
+        current_dir_script = os.path.join(os.getcwd(), script_name)
+        if os.path.exists(current_dir_script):
+            return current_dir_script
+        
+        # 在脚本同目录查找
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_path = os.path.join(script_dir, script_name)
+        if os.path.exists(script_path):
+            return script_path
+        
+        return None
     
     async def decrypt_with_yt_dlp(self, mpd_url: str, output_dir: str, 
                                 license_key: str = None) -> Optional[str]:
@@ -110,6 +130,110 @@ class DashDecryptor:
         except Exception as e:
             logger.error(f"yt-dlp解密异常: {e}")
             return None
+    
+    async def decrypt_with_standalone(self, mpd_url: str, output_dir: str, 
+                                    license_key: str = None) -> Optional[str]:
+        """使用独立的ClearKey解密脚本解密DASH流"""
+        if not self.clearkey_script:
+            logger.warning("ClearKey解密脚本不可用")
+            return None
+        
+        if not license_key:
+            logger.warning("缺少ClearKey许可证")
+            return None
+        
+        try:
+            logger.info(f"使用独立ClearKey解密器: {mpd_url}")
+            
+            # 创建临时输出目录
+            decrypt_output_dir = os.path.join(output_dir, 'clearkey_temp')
+            os.makedirs(decrypt_output_dir, exist_ok=True)
+            
+            # 执行解密脚本
+            cmd = [
+                'python3', self.clearkey_script,
+                mpd_url,
+                '--license-key', license_key,
+                '--output-dir', decrypt_output_dir,
+                '--method', 'auto'
+            ]
+            
+            logger.debug(f"执行命令: {' '.join(cmd)}")
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                # 查找生成的文件
+                output_files = []
+                for root, dirs, files in os.walk(decrypt_output_dir):
+                    for file in files:
+                        if file.endswith(('.mp4', '.mkv', '.webm')):
+                            output_files.append(os.path.join(root, file))
+                
+                if output_files:
+                    # 返回第一个找到的文件
+                    output_file = output_files[0]
+                    logger.info(f"独立解密器成功: {output_file}")
+                    return output_file
+                else:
+                    logger.error("独立解密器执行成功但未找到输出文件")
+            else:
+                error_msg = stderr.decode('utf-8', errors='ignore')
+                logger.error(f"独立解密器失败: {error_msg}")
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"独立解密器异常: {e}")
+            return None
+    
+    async def decrypt_dash_stream(self, mpd_url: str, output_dir: str, 
+                                license_key: str = None, 
+                                method: str = 'auto') -> Optional[str]:
+        """
+        解密DASH流 - 统一入口，支持多种解密方法
+        
+        Args:
+            mpd_url: MPD流地址
+            output_dir: 输出目录
+            license_key: ClearKey许可证
+            method: 解密方法 ('auto', 'yt-dlp', 'standalone')
+            
+        Returns:
+            解密后的视频文件路径，失败时返回None
+        """
+        if not license_key:
+            logger.warning("无ClearKey许可证，跳过解密")
+            return None
+        
+        logger.info(f"开始DASH解密，方法: {method}")
+        
+        decrypted_file = None
+        
+        if method in ['auto', 'standalone']:
+            # 优先尝试独立解密器
+            decrypted_file = await self.decrypt_with_standalone(
+                mpd_url, output_dir, license_key
+            )
+        
+        if not decrypted_file and method in ['auto', 'yt-dlp']:
+            # 备用yt-dlp
+            decrypted_file = await self.decrypt_with_yt_dlp(
+                mpd_url, output_dir, license_key
+            )
+        
+        if decrypted_file:
+            logger.info(f"DASH解密成功: {decrypted_file}")
+        else:
+            logger.error("所有解密方法都失败了")
+        
+        return decrypted_file
     
     async def convert_to_hls(self, input_file: str, output_dir: str, 
                            stream_id: str, hls_config: Dict) -> bool:
@@ -301,11 +425,31 @@ class MPDToHLSStreamer:
         output_dir = os.path.join(self.temp_dir, stream_id)
         os.makedirs(output_dir, exist_ok=True)
         
-        # FFmpeg命令构建
+        # 如果有ClearKey许可证，尝试先解密DASH流
+        input_source = mpd_url
+        temp_decrypted_file = None
+        
+        if license_key:
+            logger.info(f"检测到ClearKey许可证，尝试解密DASH流...")
+            try:
+                # 使用增强的解密器
+                temp_decrypted_file = await self.dash_decryptor.decrypt_dash_stream(
+                    mpd_url, output_dir, license_key, method='auto'
+                )
+                
+                if temp_decrypted_file:
+                    input_source = temp_decrypted_file
+                    logger.info(f"DASH解密成功，使用解密后的文件: {temp_decrypted_file}")
+                else:
+                    logger.warning("DASH解密失败，尝试使用FFmpeg的有限解密支持")
+            except Exception as e:
+                logger.error(f"DASH解密出错: {e}，回退到FFmpeg")
+        
+        # 构建FFmpeg命令
         cmd = [
             'ffmpeg',
             '-y',  # 覆盖输出文件
-            '-i', mpd_url,
+            '-i', input_source,
             '-c:v', self.config['ffmpeg']['video_codec'],
             '-c:a', self.config['ffmpeg']['audio_codec'],
             '-f', 'hls',
@@ -316,13 +460,13 @@ class MPDToHLSStreamer:
             os.path.join(output_dir, 'playlist.m3u8')
         ]
 
-        # 如果有ClearKey许可证，添加解密参数
-        if license_key:
+        # 如果没有通过外部工具解密成功，且有ClearKey许可证，尝试使用FFmpeg的解密参数
+        if license_key and not temp_decrypted_file:
             clearkey = self.parse_clearkey_license(license_key)
             if clearkey:
-                # FFmpeg需要单独的key参数（仅使用key值，不包含key_id）
+                # FFmpeg的ClearKey解密参数（有限支持）
                 cmd.extend(['-decryption_key', clearkey['key']])
-                logger.info(f"使用ClearKey解密: key_id={clearkey['key_id']}, key=***")
+                logger.info(f"使用FFmpeg ClearKey解密: key_id={clearkey['key_id']}, key=***")
 
         logger.info(f"启动FFmpeg进程: {' '.join(cmd[:10])}... (已隐藏敏感参数)")
         
@@ -343,7 +487,8 @@ class MPDToHLSStreamer:
                 'created_at': time.time(),
                 'status': 'starting',
                 'cmd': cmd,
-                'restart_count': 0
+                'restart_count': 0,
+                'temp_decrypted_file': temp_decrypted_file  # 记录临时解密文件
             }
             
             # 更新活跃流状态
@@ -351,7 +496,8 @@ class MPDToHLSStreamer:
                 'status': 'starting',
                 'started_at': time.time(),
                 'mpd_url': mpd_url,
-                'license_key': license_key
+                'license_key': license_key,
+                'decryption_used': temp_decrypted_file is not None
             }
 
             # 异步监控FFmpeg进程
@@ -361,6 +507,13 @@ class MPDToHLSStreamer:
             
         except Exception as e:
             logger.error(f"启动FFmpeg失败: {e}")
+            # 清理临时解密文件
+            if temp_decrypted_file and os.path.exists(temp_decrypted_file):
+                try:
+                    os.remove(temp_decrypted_file)
+                except:
+                    pass
+            
             # 清理会话
             if stream_id in self.sessions:
                 del self.sessions[stream_id]
@@ -993,7 +1146,7 @@ class MPDToHLSStreamer:
                 return web.Response(text='File Not Found', status=404)
         
         # 添加HTML、CSS、JS文件的路由
-        app.router.add_get('/{filename:[^/]+\.(html|css|js)}', serve_html_file)
+        app.router.add_get(r'/{filename:[^/]+\.(html|css|js)}', serve_html_file)
         
         # 然后添加静态文件服务（使用不同的路径避免冲突）
         app.router.add_static('/static', path='static', name='static', follow_symlinks=True)
