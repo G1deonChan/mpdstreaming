@@ -56,8 +56,24 @@ jobs:
     - name: Check security
       run: |
         # 检查是否有敏感信息泄露
-        if grep -r "real_key_id\|actual_license" . --exclude-dir=.git; then
-          echo "发现敏感信息，请检查配置文件"
+        echo "🔍 检查敏感信息..."
+        
+        # 检查配置文件中的实际敏感信息（排除示例和文档）
+        if grep -r "dckr_pat_\|ghp_\|sk-\|xoxb-" . --exclude-dir=.git --exclude-dir=node_modules 2>/dev/null; then
+          echo "❌ 发现API密钥或令牌，请检查配置文件"
           exit 1
         fi
-        echo "安全检查通过"
+        
+        # 检查是否有实际的许可证密钥（32位以上的十六进制字符串）
+        if grep -rE "[a-fA-F0-9]{32,}" config.yaml 2>/dev/null | grep -v "example\|sample\|your_key"; then
+          echo "❌ 发现可能的真实许可证密钥，请使用示例值"
+          exit 1
+        fi
+        
+        # 检查是否有真实的URL（避免示例URL）
+        if grep -rE "https://[^[:space:]]+\.(com|net|org)" config.yaml 2>/dev/null | grep -vE "example\.com|sample\.com|demo\."; then
+          echo "❌ 发现可能的真实URL，请使用示例URL"
+          exit 1
+        fi
+        
+        echo "✅ 安全检查通过"
