@@ -570,10 +570,7 @@ class MPDToHLSStreamer:
         app.router.add_get('/stream/{stream_id}/playlist.m3u8', self.handle_stream_request)
         app.router.add_get('/stream/{stream_id}/{segment}', self.handle_segment_request)
         
-        # 静态文件服务（支持反向代理）
-        app.router.add_static('/', path='static', name='static', follow_symlinks=True)
-        
-        # 根路径处理，支持反向代理
+        # 根路径处理，支持反向代理（必须在静态文件路由之前）
         async def handle_root(request):
             # 记录根路径访问
             client_ip = request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote))
@@ -594,25 +591,86 @@ class MPDToHLSStreamer:
                     <head>
                         <title>MPD流媒体服务</title>
                         <meta charset="utf-8">
+                        <style>
+                            body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                            .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                            h1 { color: #333; }
+                            .status { color: #28a745; font-weight: bold; }
+                            ul { list-style: none; padding: 0; }
+                            li { margin: 10px 0; }
+                            a { color: #007bff; text-decoration: none; padding: 8px 15px; border: 1px solid #007bff; border-radius: 5px; display: inline-block; }
+                            a:hover { background: #007bff; color: white; }
+                        </style>
                     </head>
                     <body>
-                        <h1>MPD到HLS流媒体转换服务</h1>
-                        <p>服务运行正常！</p>
-                        <ul>
-                            <li><a href="/index.html">管理界面</a></li>
-                            <li><a href="/demo.html">演示页面</a></li>
-                            <li><a href="/health">健康检查</a></li>
-                            <li><a href="/streams">API接口</a></li>
-                        </ul>
+                        <div class="container">
+                            <h1>🎬 MPD到HLS流媒体转换服务</h1>
+                            <p class="status">✅ 服务运行正常！</p>
+                            <p>通过反向代理访问成功</p>
+                            <h3>📋 可用功能:</h3>
+                            <ul>
+                                <li><a href="/index.html">📊 完整管理界面</a></li>
+                                <li><a href="/demo.html">🎬 演示页面</a></li>
+                                <li><a href="/health">❤️ 健康检查</a></li>
+                                <li><a href="/streams">🔗 API接口</a></li>
+                            </ul>
+                        </div>
                     </body>
                     </html>
                     '''
                     return web.Response(text=welcome_html, content_type='text/html')
             except Exception as e:
                 logger.error(f"处理根路径请求时出错: {e}")
-                return web.Response(text='Service Error', status=500)
+                error_html = f'''
+                <!DOCTYPE html>
+                <html>
+                <head><title>服务错误</title></head>
+                <body>
+                    <h1>服务暂时不可用</h1>
+                    <p>错误信息: {str(e)}</p>
+                    <p><a href="/health">检查服务健康状态</a></p>
+                </body>
+                </html>
+                '''
+                return web.Response(text=error_html, status=500, content_type='text/html')
         
+        # 先添加根路径处理器
         app.router.add_get('/', handle_root)
+        
+        # 添加HTML文件的直接访问路由
+        async def serve_html_file(request):
+            filename = request.match_info['filename']
+            client_ip = request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote))
+            logger.info(f"静态文件访问 - IP: {client_ip}, 文件: {filename}")
+            
+            file_path = os.path.join('static', filename)
+            if os.path.exists(file_path) and filename.endswith(('.html', '.css', '.js')):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 根据文件扩展名设置正确的Content-Type
+                    if filename.endswith('.html'):
+                        content_type = 'text/html'
+                    elif filename.endswith('.css'):
+                        content_type = 'text/css'
+                    elif filename.endswith('.js'):
+                        content_type = 'application/javascript'
+                    else:
+                        content_type = 'text/plain'
+                    
+                    return web.Response(text=content, content_type=content_type)
+                except Exception as e:
+                    logger.error(f"读取文件 {filename} 时出错: {e}")
+                    return web.Response(text='File Error', status=500)
+            else:
+                return web.Response(text='File Not Found', status=404)
+        
+        # 添加HTML、CSS、JS文件的路由
+        app.router.add_get('/{filename:[^/]+\.(html|css|js)}', serve_html_file)
+        
+        # 然后添加静态文件服务（使用不同的路径避免冲突）
+        app.router.add_static('/static', path='static', name='static', follow_symlinks=True)
         
         # 添加OPTIONS处理支持CORS预检
         async def handle_options(request):
