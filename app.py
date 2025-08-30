@@ -541,6 +541,23 @@ class MPDToHLSStreamer:
         """创建Web应用"""
         app = web.Application()
         
+        # 添加CORS中间件，支持反向代理
+        @web.middleware
+        async def cors_handler(request, handler):
+            response = await handler(request)
+            # 添加CORS头部
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+            
+            # 记录访问日志，便于调试反向代理问题
+            client_ip = request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote))
+            logger.info(f"访问请求 - IP: {client_ip}, 路径: {request.path}, 方法: {request.method}")
+            
+            return response
+        
+        app.middlewares.append(cors_handler)
+        
         # 路由配置
         app.router.add_get('/health', self.handle_health_check)
         app.router.add_get('/streams', self.handle_list_streams)
@@ -553,14 +570,60 @@ class MPDToHLSStreamer:
         app.router.add_get('/stream/{stream_id}/playlist.m3u8', self.handle_stream_request)
         app.router.add_get('/stream/{stream_id}/{segment}', self.handle_segment_request)
         
-        # 静态文件服务（如果需要Web界面）
-        app.router.add_static('/', path='static', name='static')
+        # 静态文件服务（支持反向代理）
+        app.router.add_static('/', path='static', name='static', follow_symlinks=True)
         
-        # 根路径重定向到演示页面
-        async def redirect_to_demo(request):
-            return web.HTTPFound('/demo.html')
+        # 根路径处理，支持反向代理
+        async def handle_root(request):
+            # 记录根路径访问
+            client_ip = request.headers.get('X-Forwarded-For', request.headers.get('X-Real-IP', request.remote))
+            logger.info(f"根路径访问 - IP: {client_ip}, User-Agent: {request.headers.get('User-Agent', 'Unknown')}")
+            
+            # 尝试直接返回demo.html内容，避免重定向问题
+            try:
+                demo_path = os.path.join('static', 'demo.html')
+                if os.path.exists(demo_path):
+                    with open(demo_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    return web.Response(text=content, content_type='text/html')
+                else:
+                    # 如果demo.html不存在，返回简单的欢迎页面
+                    welcome_html = '''
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>MPD流媒体服务</title>
+                        <meta charset="utf-8">
+                    </head>
+                    <body>
+                        <h1>MPD到HLS流媒体转换服务</h1>
+                        <p>服务运行正常！</p>
+                        <ul>
+                            <li><a href="/index.html">管理界面</a></li>
+                            <li><a href="/demo.html">演示页面</a></li>
+                            <li><a href="/health">健康检查</a></li>
+                            <li><a href="/streams">API接口</a></li>
+                        </ul>
+                    </body>
+                    </html>
+                    '''
+                    return web.Response(text=welcome_html, content_type='text/html')
+            except Exception as e:
+                logger.error(f"处理根路径请求时出错: {e}")
+                return web.Response(text='Service Error', status=500)
         
-        app.router.add_get('/', redirect_to_demo)
+        app.router.add_get('/', handle_root)
+        
+        # 添加OPTIONS处理支持CORS预检
+        async def handle_options(request):
+            return web.Response(status=200, headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+            })
+        
+        # 为所有路径添加OPTIONS支持
+        app.router.add_route('OPTIONS', '/{path:.*}', handle_options)
         
         return app
 
@@ -570,11 +633,18 @@ class MPDToHLSStreamer:
         
         logger.info(f"启动MPD转HLS流媒体服务器...")
         logger.info(f"服务器地址: http://{self.config['server']['host']}:{self.config['server']['port']}")
+        logger.info(f"支持的访问方式:")
+        logger.info(f"  - 直接访问: http://{self.config['server']['host']}:{self.config['server']['port']}")
+        logger.info(f"  - 通过反向代理: 确保代理正确转发X-Forwarded-For和X-Real-IP头")
+        logger.info(f"  - Web管理界面: /index.html")
+        logger.info(f"  - 演示页面: /demo.html") 
+        logger.info(f"  - API健康检查: /health")
         
         web.run_app(
             app,
             host=self.config['server']['host'],
-            port=self.config['server']['port']
+            port=self.config['server']['port'],
+            access_log=logger
         )
 
     def __del__(self):
