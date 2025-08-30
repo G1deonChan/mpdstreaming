@@ -24,11 +24,12 @@
 - [ ] 验证配置文件不包含真实密钥
 - [ ] 确认防火墙规则允许必要端口
 
-### 4. Docker Hub配置 (可选)
+### 4. CI/CD配置 (可选)
 - [ ] 阅读 `DOCKER_HUB_SETUP.md` 配置指南
 - [ ] 创建Docker Hub账户和访问令牌
 - [ ] 在GitHub仓库设置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` secrets
 - [ ] 验证GitHub Actions权限设置正确
+- [ ] 了解CI/CD策略：代码推送时仅运行测试，发布时才构建镜像
 
 ## 🐳 Docker部署检查
 

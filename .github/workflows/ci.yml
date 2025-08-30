@@ -1,0 +1,63 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.11]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio
+
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Test with pytest
+      run: |
+        # 运行单元测试
+        python -m pytest tests/ -v --tb=short
+
+    - name: Test Docker build (no push)
+      run: |
+        # 仅测试Docker镜像构建，不推送
+        docker build -t test-image .
+        docker run --rm test-image python -c "import app; print('App imports successfully')"
+
+    - name: Validate configuration files
+      run: |
+        # 验证YAML配置文件格式
+        python -c "import yaml; yaml.safe_load(open('config.example.yaml'))"
+        python -c "import yaml; yaml.safe_load(open('config.yaml'))"
+
+    - name: Check security
+      run: |
+        # 检查是否有敏感信息泄露
+        if grep -r "real_key_id\|actual_license" . --exclude-dir=.git; then
+          echo "发现敏感信息，请检查配置文件"
+          exit 1
+        fi
+        echo "安全检查通过"

@@ -8,7 +8,7 @@
 - 🔐 支持ClearKey许可证解密
 - ⚙️ 通过YAML配置文件管理流
 - 🐳 Docker容器化部署
-- 🏗️ GitHub Actions自动构建多架构镜像
+- 🏗️ GitHub Actions CI/CD (仅在发布时构建镜像)
 - 🌐 功能完整的Web管理界面
 - 📱 RESTful API接口
 - 🔍 健康检查和监控
@@ -267,6 +267,33 @@ https://example.com/sample/stream.mpd
 该项目支持以下架构：
 - `linux/amd64` - x86_64架构
 - `linux/arm64` - ARM64架构（专门优化）
+
+## CI/CD策略
+
+项目采用优化的CI/CD策略：
+
+### 🔄 持续集成 (CI)
+- **触发条件**: 推送到主分支或创建PR
+- **执行内容**: 
+  - 代码质量检查 (flake8)
+  - 单元测试 (pytest)
+  - Docker构建测试 (仅构建，不推送)
+  - 配置文件验证
+  - 安全检查
+
+### 🚀 持续部署 (CD)
+- **触发条件**: 创建release标签 (如 `v1.0.0`)
+- **执行内容**:
+  - 多架构Docker镜像构建 (AMD64 + ARM64)
+  - 推送到GitHub Container Registry
+  - 推送到Docker Hub (如果配置了secrets)
+  - 安全漏洞扫描
+
+这种策略的优势：
+- ✅ 减少不必要的镜像构建
+- ✅ 节省GitHub Actions运行时间
+- ✅ 保持高质量的代码检查
+- ✅ 仅在正式发布时构建镜像
 
 ## 部署选项
 
