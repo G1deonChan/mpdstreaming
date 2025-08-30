@@ -110,6 +110,59 @@ class DashClearKeyDecryptor:
             logger.error(f"yt-dlp解密异常: {e}")
             return None
     
+    async def decrypt_with_yt_dlp_to_pipe(self, mpd_url: str, license_key: str = None) -> subprocess.Popen:
+        """使用yt-dlp解密DASH流并通过管道输出"""
+        try:
+            cmd = ['yt-dlp']
+            
+            # 基本下载选项
+            cmd.extend([
+                '--no-warnings',
+                '--quiet',
+                '-o', '-',  # 输出到stdout
+                '-f', 'best[ext=mp4]/best',  # 优先选择mp4格式
+            ])
+            
+            # 如果有ClearKey许可证
+            if license_key:
+                clearkey = self.parse_clearkey(license_key)
+                if clearkey:
+                    # 构建ClearKey的JSON格式
+                    clearkey_json = json.dumps({
+                        "keys": [{
+                            "kty": "oct",
+                            "kid": clearkey['key_id'],
+                            "k": clearkey['key']
+                        }]
+                    })
+                    
+                    # 通过环境变量或临时文件传递密钥
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                        f.write(clearkey_json)
+                        key_file = f.name
+                    
+                    cmd.extend(['--external-downloader-args', f'clearkey:{key_file}'])
+                    logger.info(f"使用ClearKey解密: key_id={clearkey['key_id'][:8]}...")
+            
+            cmd.append(mpd_url)
+            
+            logger.info(f"启动yt-dlp管道解密: {' '.join(cmd[:3])}...")
+            
+            # 启动进程，输出到stdout供管道使用
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=False  # 二进制模式
+            )
+            
+            return process
+            
+        except Exception as e:
+            logger.error(f"yt-dlp管道解密启动失败: {e}")
+            return None
+
     async def decrypt_with_manual_method(self, mpd_url: str, output_dir: str, 
                                         license_key: str) -> Optional[str]:
         """手动下载和解密方法"""
@@ -405,14 +458,66 @@ async def decrypt_dash_to_hls(mpd_url: str, output_dir: str, license_key: str = 
         logger.error(f"解密转换过程中发生异常: {e}")
         return False
 
+# 新增：管道模式解密函数
+async def decrypt_dash_to_pipe(mpd_url: str, license_key: str = None, output_format: str = 'ts') -> int:
+    """解密DASH流并通过管道输出 - 用于与FFmpeg连接"""
+    
+    decryptor = DashClearKeyDecryptor()
+    
+    try:
+        # 使用yt-dlp进行管道解密
+        logger.info(f"启动管道模式解密: {mpd_url}")
+        
+        if license_key:
+            logger.info("检测到ClearKey许可证，使用yt-dlp解密管道")
+            process = await decryptor.decrypt_with_yt_dlp_to_pipe(mpd_url, license_key)
+        else:
+            logger.info("无加密流，使用yt-dlp直接下载管道")
+            process = await decryptor.decrypt_with_yt_dlp_to_pipe(mpd_url)
+        
+        if process:
+            # 将解密后的数据转发到stdout
+            try:
+                while True:
+                    chunk = process.stdout.read(8192)  # 8KB chunks
+                    if not chunk:
+                        break
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+                
+                # 等待进程完成
+                returncode = process.wait()
+                
+                if returncode == 0:
+                    logger.info("管道解密完成")
+                    return 0
+                else:
+                    stderr_output = process.stderr.read().decode('utf-8', errors='ignore')
+                    logger.error(f"管道解密失败: {stderr_output}")
+                    return returncode
+                    
+            except Exception as e:
+                logger.error(f"管道数据传输失败: {e}")
+                process.kill()
+                return 1
+        else:
+            logger.error("无法启动解密进程")
+            return 1
+            
+    except Exception as e:
+        logger.error(f"管道解密异常: {e}")
+        return 1
+
 # 命令行工具
 if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(description='DASH流ClearKey解密工具')
     parser.add_argument('mpd_url', help='MPD流URL')
-    parser.add_argument('output_dir', help='输出目录')
+    parser.add_argument('output', nargs='?', help='输出目录或文件名')
     parser.add_argument('--license-key', help='ClearKey许可证 (key_id:key)')
+    parser.add_argument('--output-format', choices=['file', 'pipe'], default='file', help='输出格式')
+    parser.add_argument('--pipe-format', choices=['mp4', 'ts'], default='ts', help='管道输出格式')
     parser.add_argument('--verbose', '-v', action='store_true', help='详细日志')
     
     args = parser.parse_args()
@@ -422,13 +527,23 @@ if __name__ == '__main__':
     logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
     
     async def main():
-        success = await decrypt_dash_to_hls(args.mpd_url, args.output_dir, args.license_key)
-        
-        if success:
-            print(f"✅ 解密转换成功! HLS播放列表: {os.path.join(args.output_dir, 'playlist.m3u8')}")
-            sys.exit(0)
+        if args.output_format == 'pipe':
+            # 管道模式 - 输出到stdout供FFmpeg使用
+            exit_code = await decrypt_dash_to_pipe(args.mpd_url, args.license_key, args.pipe_format)
+            sys.exit(exit_code)
         else:
-            print("❌ 解密转换失败")
-            sys.exit(1)
+            # 文件模式 - 保存到文件系统
+            if not args.output:
+                logger.error("文件模式需要指定输出目录")
+                sys.exit(1)
+                
+            success = await decrypt_dash_to_hls(args.mpd_url, args.output, args.license_key)
+            
+            if success:
+                print(f"✅ 解密转换成功! HLS播放列表: {os.path.join(args.output, 'playlist.m3u8')}")
+                sys.exit(0)
+            else:
+                print("❌ 解密转换失败")
+                sys.exit(1)
     
     asyncio.run(main())

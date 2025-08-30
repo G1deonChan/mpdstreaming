@@ -423,65 +423,106 @@ class MPDToHLSStreamer:
             logger.error(f"流URL连接失败，无法创建HLS流: {stream_id}")
             raise Exception(f"无法连接到流URL: {mpd_url}")
         
-        # 如果MPD流需要解密
+        # 如果MPD流需要解密 - 使用管道传输到FFmpeg
         if license_key and 'clearkey' in license_key.lower():
-            logger.info(f"检测到ClearKey加密流: {stream_id}")
+            logger.info(f"检测到ClearKey加密流，使用外部解密器: {stream_id}")
+            return await self._create_hls_with_decryption_pipe(stream_id, mpd_url, license_key, output_dir)
+        else:
+            # 标准FFmpeg处理（无加密）
+            return await self._create_hls_with_ffmpeg(stream_id, mpd_url, license_key, output_dir)
+
+    async def _create_hls_with_decryption_pipe(self, stream_id: str, mpd_url: str, 
+                                              license_key: str, output_dir: str) -> str:
+        """使用解密管道创建HLS流"""
+        try:
+            # 构建解密命令 - 输出到stdout供FFmpeg使用
+            decrypt_cmd = [
+                'python', 
+                os.path.join(os.path.dirname(__file__), 'decrypt_dash.py'),
+                mpd_url,
+                '--license-key', license_key,
+                '--output-format', 'pipe',  # 新参数：管道输出模式
+                '--pipe-format', 'ts'  # 输出为TS格式方便FFmpeg处理
+            ]
             
-            # 使用解密器处理加密流
-            decrypted_file = await self.dash_decryptor.decrypt_stream(
-                mpd_url, output_dir, license_key
+            # 构建FFmpeg命令 - 从stdin读取解密后的数据
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-y',  # 覆盖输出文件
+                '-f', 'mpegts',  # 输入格式为MPEG-TS
+                '-i', 'pipe:0',  # 从stdin读取
+                '-c:v', self.config['ffmpeg']['video_codec'],
+                '-c:a', self.config['ffmpeg']['audio_codec'],
+                '-f', 'hls',
+                '-hls_time', str(self.config['ffmpeg']['hls_time']),
+                '-hls_list_size', str(self.config['ffmpeg']['hls_list_size']),
+                '-hls_flags', self.config['ffmpeg']['hls_flags'],
+                '-hls_segment_filename', os.path.join(output_dir, 'segment_%03d.ts'),
+                os.path.join(output_dir, 'playlist.m3u8')
+            ]
+
+            logger.info(f"启动解密管道: {' '.join(decrypt_cmd[:3])}... | {' '.join(ffmpeg_cmd[:5])}...")
+            
+            # 启动解密进程
+            decrypt_process = subprocess.Popen(
+                decrypt_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=False  # 二进制模式
             )
             
-            if decrypted_file:
-                logger.info(f"流解密成功，转换为HLS: {stream_id}")
-                # 将解密的文件转换为HLS
-                hls_config = {
-                    'video_codec': self.config['ffmpeg']['video_codec'],
-                    'audio_codec': self.config['ffmpeg']['audio_codec'],
-                    'hls_time': self.config['ffmpeg']['hls_time'],
-                    'hls_list_size': self.config['ffmpeg']['hls_list_size'],
-                    'hls_flags': self.config['ffmpeg']['hls_flags']
-                }
-                
-                success = await self.dash_decryptor.convert_to_hls(
-                    decrypted_file, output_dir, stream_id, hls_config
-                )
-                
-                if success:
-                    # 创建模拟的进程对象（因为转换已经完成）
-                    fake_process = type('FakeProcess', (), {
-                        'pid': 0,
-                        'poll': lambda: 0,  # 已完成
-                        'returncode': 0
-                    })()
-                    
-                    # 保存会话信息
-                    self.sessions[stream_id] = {
-                        'process': fake_process,
-                        'output_dir': output_dir,
-                        'created_at': time.time(),
-                        'status': 'completed',
-                        'cmd': ['decrypt_dash.py', mpd_url],
-                        'restart_count': 0
-                    }
-                    
-                    # 更新活跃流状态
-                    self.active_streams[stream_id] = {
-                        'status': 'running',
-                        'started_at': time.time(),
-                        'mpd_url': mpd_url,
-                        'license_key': license_key,
-                        'method': 'decryption'
-                    }
-                    
-                    return os.path.join(output_dir, 'playlist.m3u8')
-                else:
-                    raise Exception("解密后的HLS转换失败")
-            else:
-                logger.warning(f"解密失败，尝试直接FFmpeg处理: {stream_id}")
-                # 继续使用原来的FFmpeg方法
-        
-        # 标准FFmpeg处理（无加密或解密失败的fallback）
+            # 启动FFmpeg进程，连接解密进程的输出
+            ffmpeg_process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=decrypt_process.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True
+            )
+            
+            # 关闭解密进程的stdout在FFmpeg进程中，避免管道阻塞
+            decrypt_process.stdout.close()
+
+            # 保存会话信息 - 需要管理两个进程
+            self.sessions[stream_id] = {
+                'decrypt_process': decrypt_process,
+                'ffmpeg_process': ffmpeg_process,
+                'process': ffmpeg_process,  # 保持兼容性，主要监控FFmpeg
+                'output_dir': output_dir,
+                'created_at': time.time(),
+                'status': 'starting',
+                'cmd': ffmpeg_cmd,
+                'decrypt_cmd': decrypt_cmd,
+                'restart_count': 0,
+                'method': 'decryption_pipe'
+            }
+            
+            # 更新活跃流状态
+            self.active_streams[stream_id] = {
+                'status': 'starting',
+                'started_at': time.time(),
+                'mpd_url': mpd_url,
+                'license_key': license_key,
+                'method': 'decryption_pipe'
+            }
+
+            # 异步监控两个进程
+            asyncio.create_task(self._monitor_decryption_pipe(stream_id))
+
+            return os.path.join(output_dir, 'playlist.m3u8')
+            
+        except Exception as e:
+            logger.error(f"启动解密管道失败: {e}")
+            # 清理会话
+            if stream_id in self.sessions:
+                del self.sessions[stream_id]
+            if stream_id in self.active_streams:
+                del self.active_streams[stream_id]
+            raise
+
+    async def _create_hls_with_ffmpeg(self, stream_id: str, mpd_url: str, 
+                                     license_key: str, output_dir: str) -> str:
+        """使用标准FFmpeg创建HLS流（无加密或fallback）"""
         cmd = [
             'ffmpeg',
             '-y',  # 覆盖输出文件
@@ -501,16 +542,15 @@ class MPDToHLSStreamer:
             os.path.join(output_dir, 'playlist.m3u8')
         ]
 
-        # 如果有ClearKey许可证，添加解密参数（仅作为fallback）
+        # 如果有ClearKey许可证，添加解密参数（仅作为fallback - 但通常不起作用）
         if license_key:
             clearkey = self.parse_clearkey_license(license_key)
             if clearkey:
-                # FFmpeg需要单独的key参数（仅使用key值，不包含key_id）
-                # 在输入之前添加解密参数
+                # FFmpeg的ClearKey支持有限，主要作为fallback
                 decrypt_idx = cmd.index('-i')
                 cmd.insert(decrypt_idx, '-decryption_key')
                 cmd.insert(decrypt_idx + 1, clearkey['key'])
-                logger.info(f"使用FFmpeg ClearKey fallback: key_id={clearkey['key_id']}, key=***")
+                logger.info(f"使用FFmpeg ClearKey fallback: key_id={clearkey['key_id']}, key=*** (可能不起作用)")
 
         logger.info(f"启动FFmpeg进程: {' '.join(cmd[:10])}... (已隐藏敏感参数)")
         
@@ -531,7 +571,8 @@ class MPDToHLSStreamer:
                 'created_at': time.time(),
                 'status': 'starting',
                 'cmd': cmd,
-                'restart_count': 0
+                'restart_count': 0,
+                'method': 'ffmpeg_direct'
             }
             
             # 更新活跃流状态
@@ -540,7 +581,7 @@ class MPDToHLSStreamer:
                 'started_at': time.time(),
                 'mpd_url': mpd_url,
                 'license_key': license_key,
-                'method': 'ffmpeg'
+                'method': 'ffmpeg_direct'
             }
 
             # 异步监控FFmpeg进程
@@ -634,6 +675,159 @@ class MPDToHLSStreamer:
                 
         except Exception as e:
             logger.error(f"监控FFmpeg进程时出错 (stream_id: {stream_id}): {e}")
+    
+    async def _monitor_decryption_pipe(self, stream_id: str):
+        """监控解密管道进程状态"""
+        if stream_id not in self.sessions:
+            return
+        
+        session = self.sessions[stream_id]
+        decrypt_process = session['decrypt_process']
+        ffmpeg_process = session['ffmpeg_process']
+        max_restarts = 3
+        
+        try:
+            # 等待进程启动
+            await asyncio.sleep(2)
+            
+            # 检查两个进程的状态
+            decrypt_status = decrypt_process.poll()
+            ffmpeg_status = ffmpeg_process.poll()
+            
+            if decrypt_status is not None or ffmpeg_status is not None:
+                # 至少一个进程已退出
+                logger.error(f"解密管道进程退出 (stream_id: {stream_id})")
+                
+                # 收集错误信息
+                error_info = []
+                
+                if decrypt_status is not None:
+                    try:
+                        _, stderr = decrypt_process.communicate(timeout=1)
+                        decrypt_error = stderr.decode('utf-8', errors='ignore') if stderr else ""
+                        error_info.append(f"解密进程退出 (代码: {decrypt_status}): {decrypt_error}")
+                        logger.error(f"解密进程退出 - 代码: {decrypt_status}, 错误: {decrypt_error}")
+                    except:
+                        error_info.append(f"解密进程异常退出 (代码: {decrypt_status})")
+                
+                if ffmpeg_status is not None:
+                    try:
+                        stdout = ffmpeg_process.stdout.read() if ffmpeg_process.stdout else ""
+                        error_info.append(f"FFmpeg进程退出 (代码: {ffmpeg_status}): {stdout}")
+                        logger.error(f"FFmpeg进程退出 - 代码: {ffmpeg_status}, 输出: {stdout}")
+                    except:
+                        error_info.append(f"FFmpeg进程异常退出 (代码: {ffmpeg_status})")
+                
+                # 分析错误类型
+                combined_error = " | ".join(error_info)
+                error_analysis = self._analyze_ffmpeg_error(combined_error, ffmpeg_status or decrypt_status)
+                logger.info(f"解密管道错误分析: {error_analysis}")
+                
+                # 更新状态
+                if stream_id in self.active_streams:
+                    self.active_streams[stream_id]['status'] = 'error'
+                    self.active_streams[stream_id]['error'] = error_analysis
+                session['status'] = 'error'
+                session['error'] = error_analysis
+                
+                # 正确递增重启计数器
+                current_restarts = session.get('restart_count', 0)
+                
+                # 根据错误类型决定是否重试
+                should_retry = self._should_retry_error(error_analysis, current_restarts)
+                
+                # 尝试重启（如果重启次数未超限且错误可重试）
+                if current_restarts < max_restarts and should_retry:
+                    session['restart_count'] = current_restarts + 1
+                    logger.info(f"尝试重启解密管道 (stream_id: {stream_id}, 第{session['restart_count']}次)")
+                    
+                    # 根据错误类型调整延迟时间
+                    delay = self._get_retry_delay(error_analysis, session['restart_count'])
+                    await asyncio.sleep(delay)
+                    
+                    await self._restart_decryption_pipe(stream_id)
+                else:
+                    reason = "重启次数超限" if current_restarts >= max_restarts else "错误不可重试"
+                    logger.error(f"解密管道停止重试: {reason} (stream_id: {stream_id})")
+            else:
+                # 进程正在运行，等待一段时间后检查playlist文件
+                await asyncio.sleep(5)
+                playlist_path = os.path.join(session['output_dir'], 'playlist.m3u8')
+                
+                if os.path.exists(playlist_path):
+                    # 更新状态为运行中
+                    if stream_id in self.active_streams:
+                        self.active_streams[stream_id]['status'] = 'running'
+                    session['status'] = 'running'
+                    logger.info(f"解密管道已成功启动 (stream_id: {stream_id})")
+                else:
+                    logger.warning(f"解密管道运行但未生成playlist文件 (stream_id: {stream_id})")
+                
+        except Exception as e:
+            logger.error(f"监控解密管道时出错 (stream_id: {stream_id}): {e}")
+
+    async def _restart_decryption_pipe(self, stream_id: str):
+        """重启解密管道"""
+        if stream_id not in self.sessions:
+            return
+        
+        session = self.sessions[stream_id]
+        
+        # 停止旧进程
+        if session['decrypt_process'].poll() is None:
+            session['decrypt_process'].terminate()
+            await asyncio.sleep(1)
+            if session['decrypt_process'].poll() is None:
+                session['decrypt_process'].kill()
+        
+        if session['ffmpeg_process'].poll() is None:
+            session['ffmpeg_process'].terminate()
+            await asyncio.sleep(1)
+            if session['ffmpeg_process'].poll() is None:
+                session['ffmpeg_process'].kill()
+        
+        # 获取流配置
+        stream_config = None
+        for stream in self.config['streams']:
+            if stream['id'] == stream_id:
+                stream_config = stream
+                break
+        
+        if not stream_config:
+            logger.error(f"找不到流配置，无法重启解密管道 (stream_id: {stream_id})")
+            return
+        
+        try:
+            # 保留重启计数器和错误信息
+            restart_count = session.get('restart_count', 0)
+            error_info = session.get('error', '')
+            
+            # 重新启动（清理旧会话，但保持重启计数）
+            if stream_id in self.sessions:
+                del self.sessions[stream_id]
+            if stream_id in self.active_streams:
+                del self.active_streams[stream_id]
+            
+            # 延迟一段时间再重启
+            await asyncio.sleep(1)
+            
+            await self.create_hls_stream(
+                stream_id,
+                stream_config['url'],
+                stream_config.get('license_key')
+            )
+            
+            # 恢复重启计数器和错误信息
+            if stream_id in self.sessions:
+                self.sessions[stream_id]['restart_count'] = restart_count
+                self.sessions[stream_id]['last_error'] = error_info
+                
+        except Exception as e:
+            logger.error(f"重启解密管道失败 (stream_id: {stream_id}): {e}")
+            # 标记为失败状态
+            if stream_id in self.active_streams:
+                self.active_streams[stream_id]['status'] = 'failed'
+                self.active_streams[stream_id]['error'] = str(e)
     
     async def _restart_ffmpeg_process(self, stream_id: str):
         """重启FFmpeg进程"""
@@ -1086,10 +1280,21 @@ class MPDToHLSStreamer:
         if stream_id in self.sessions:
             session = self.sessions[stream_id]
             
-            # 终止FFmpeg进程
-            if session['process'].poll() is None:
-                session['process'].terminate()
-                session['process'].wait()
+            # 根据不同的方法清理进程
+            if session.get('method') == 'decryption_pipe':
+                # 清理解密管道的两个进程
+                if 'decrypt_process' in session and session['decrypt_process'].poll() is None:
+                    session['decrypt_process'].terminate()
+                    session['decrypt_process'].wait(timeout=5)
+                    
+                if 'ffmpeg_process' in session and session['ffmpeg_process'].poll() is None:
+                    session['ffmpeg_process'].terminate()
+                    session['ffmpeg_process'].wait(timeout=5)
+            else:
+                # 清理单个FFmpeg进程
+                if 'process' in session and session['process'].poll() is None:
+                    session['process'].terminate()
+                    session['process'].wait(timeout=5)
             
             # 清理临时文件
             if os.path.exists(session['output_dir']):
