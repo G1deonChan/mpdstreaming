@@ -75,14 +75,14 @@ start.bat clean
 **从Docker Hub拉取 (推荐):**
 ```bash
 # 拉取最新版本
-docker pull your-dockerhub-username/mpdstreaming:latest
+docker pull xinmeng96/mpdstreaming:latest
 
 # 运行容器
 docker run -d \
   --name mpd-hls-streamer \
   -p 8080:8080 \
   -v ./config.yaml:/app/config.yaml:ro \
-  your-dockerhub-username/mpdstreaming:latest
+  xinmeng96/mpdstreaming:latest
 ```
 
 **从GitHub Container Registry拉取:**

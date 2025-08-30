@@ -5,7 +5,7 @@ services:
     build: .
     # 或者使用预构建的镜像 (推荐用于生产环境)
     # Docker Hub镜像:
-    # image: your-dockerhub-username/mpdstreaming:latest
+    # image: xinmeng96/mpdstreaming:latest
     # GitHub Container Registry镜像:
     # image: ghcr.io/g1deonchan/mpdstreaming:latest
     container_name: mpd-hls-streamer

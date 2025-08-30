@@ -6,7 +6,7 @@ version: '3.8'
 services:
   mpdstreaming:
     # 使用Docker Hub镜像 (推荐)
-    image: your-dockerhub-username/mpdstreaming:latest
+    image: xinmeng96/mpdstreaming:latest
     # 或者使用GitHub Container Registry
     # image: ghcr.io/g1deonchan/mpdstreaming:latest
     
@@ -56,7 +56,7 @@ services:
   # 监控服务 (可选，使用 --profile monitoring 启用)
   monitor:
     # 使用相同的镜像
-    image: your-dockerhub-username/mpdstreaming:latest
+    image: xinmeng96/mpdstreaming:latest
     # 或者使用GitHub Container Registry
     # image: ghcr.io/g1deonchan/mpdstreaming:latest
     
