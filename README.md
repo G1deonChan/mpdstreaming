@@ -77,11 +77,10 @@ start.bat clean
 # 拉取最新版本
 docker pull xinmeng96/mpdstreaming:latest
 
-# 运行容器
+# 运行容器（自动配置）
 docker run -d \
   --name mpd-hls-streamer \
   -p 8080:8080 \
-  -v ./config.yaml:/app/config.yaml:ro \
   xinmeng96/mpdstreaming:latest
 ```
 
@@ -90,23 +89,29 @@ docker run -d \
 # 拉取最新版本
 docker pull ghcr.io/g1deonchan/mpdstreaming:latest
 
-# 运行容器
+# 运行容器（自动配置）
 docker run -d \
   --name mpd-hls-streamer \
   -p 8080:8080 \
-  -v ./config.yaml:/app/config.yaml:ro \
   ghcr.io/g1deonchan/mpdstreaming:latest
 ```
 
 ### 方法3: 使用Docker Compose
 
+默认使用Docker Hub镜像，无需本地构建：
+
 ```bash
-# 启动服务
+# 启动服务 (使用Docker Hub镜像)
 docker-compose up -d
 
 # 查看日志
 docker-compose logs -f
+
+# 使用生产环境配置
+docker-compose -f docker-compose.prod.yml up -d
 ```
+
+如需本地构建，请编辑`docker-compose.yml`文件，将`image:`行注释掉，取消注释`build: .`行。
 
 ### 本地开发运行
 
@@ -327,16 +332,27 @@ https://example.com/sample/stream.mpd
 
 ## 部署选项
 
-### 1. 单容器部署
+### 1. 单容器部署 (Docker Hub)
 ```bash
-docker run -d --name mpd-streamer -p 8080:8080 ghcr.io/your-username/mpdstreaming:latest
+docker run -d --name mpd-streamer -p 8080:8080 xinmeng96/mpdstreaming:latest
 ```
 
 ### 2. 使用Docker Compose（推荐）
-包含nginx反向代理和SSL终止
+默认使用Docker Hub预构建镜像，包含nginx反向代理：
+
+```bash
+# 开发环境 (Docker Hub镜像)
+docker-compose up -d
+
+# 生产环境 (Docker Hub镜像)
+docker-compose -f docker-compose.prod.yml up -d
+```
 
 ### 3. Kubernetes部署
-可以使用提供的Docker镜像在Kubernetes集群中部署
+可以使用Docker Hub镜像在Kubernetes集群中部署：
+```yaml
+image: xinmeng96/mpdstreaming:latest
+```
 
 ## 监控和日志
 

@@ -2,12 +2,12 @@ version: '3.8'
 
 services:
   mpdstreaming:
-    build: .
-    # 或者使用预构建的镜像 (推荐用于生产环境)
-    # Docker Hub镜像:
-    # image: xinmeng96/mpdstreaming:latest
-    # GitHub Container Registry镜像:
+    # 使用Docker Hub镜像 (推荐)
+    image: xinmeng96/mpdstreaming:latest
+    # 或者使用GitHub Container Registry:
     # image: ghcr.io/g1deonchan/mpdstreaming:latest
+    # 或者本地构建:
+    # build: .
     container_name: mpd-hls-streamer
     ports:
       - "8080:8080"
